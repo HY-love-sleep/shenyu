@@ -26,7 +26,7 @@ import org.apache.shenyu.common.enums.PluginEnum;
 import org.apache.shenyu.common.utils.GsonUtils;
 import org.apache.shenyu.common.utils.Singleton;
 import org.apache.shenyu.plugin.ai.common.spring.ai.registry.AiModelFactoryRegistry;
-import org.apache.shenyu.plugin.ai.transformer.request.cache.ChatClientCache;
+import org.apache.shenyu.plugin.ai.common.cache.ChatClientCache;
 import org.apache.shenyu.plugin.ai.transformer.request.handler.AiRequestTransformerPluginHandler;
 import org.apache.shenyu.plugin.ai.transformer.request.template.AiRequestTransformerTemplate;
 import org.apache.shenyu.plugin.api.ShenyuPluginChain;
