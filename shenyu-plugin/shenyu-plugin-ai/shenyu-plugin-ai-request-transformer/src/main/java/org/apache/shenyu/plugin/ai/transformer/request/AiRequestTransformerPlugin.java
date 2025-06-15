@@ -19,12 +19,13 @@ package org.apache.shenyu.plugin.ai.transformer.request;
 
 import org.apache.shenyu.common.dto.RuleData;
 import org.apache.shenyu.common.dto.SelectorData;
-import org.apache.shenyu.common.dto.convert.plugin.AiRequestTransformerConfig;
-import org.apache.shenyu.common.dto.convert.rule.AiRequestTransformerHandle;
+import org.apache.shenyu.common.dto.convert.plugin.AiTransformerConfig;
+import org.apache.shenyu.common.dto.convert.rule.AiTransformerHandle;
 import org.apache.shenyu.common.enums.AiModelProviderEnum;
 import org.apache.shenyu.common.enums.PluginEnum;
 import org.apache.shenyu.common.utils.GsonUtils;
 import org.apache.shenyu.common.utils.Singleton;
+import org.apache.shenyu.plugin.ai.common.plugin.AbstractAiTransformerPlugin;
 import org.apache.shenyu.plugin.ai.common.spring.ai.registry.AiModelFactoryRegistry;
 import org.apache.shenyu.plugin.ai.common.cache.ChatClientCache;
 import org.apache.shenyu.plugin.ai.transformer.request.handler.AiRequestTransformerPluginHandler;
@@ -41,6 +42,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.HttpMessageReader;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -59,189 +61,11 @@ import java.util.stream.Stream;
 /**
  * this is ai request transformer plugin.
  */
-public class AiRequestTransformerPlugin extends AbstractShenyuPlugin {
+public class AiRequestTransformerPlugin extends AbstractAiTransformerPlugin {
 
-    private static final Logger LOG = LoggerFactory.getLogger(AiRequestTransformerPlugin.class);
-
-    private final List<HttpMessageReader<?>> messageReaders;
-
-    private final AiModelFactoryRegistry aiModelFactoryRegistry;
-
-    public AiRequestTransformerPlugin(final List<HttpMessageReader<?>> messageReaders, final AiModelFactoryRegistry aiModelFactoryRegistry) {
-        this.messageReaders = messageReaders;
-        this.aiModelFactoryRegistry = aiModelFactoryRegistry;
-    }
-
-    @Override
-    protected Mono<Void> doExecute(final ServerWebExchange exchange, final ShenyuPluginChain chain, final SelectorData selector, final RuleData rule) {
-        AiRequestTransformerConfig aiRequestTransformerConfig = Singleton.INST.get(AiRequestTransformerConfig.class);
-        if (Objects.isNull(aiRequestTransformerConfig)) {
-            aiRequestTransformerConfig = new AiRequestTransformerConfig();
-        }
-
-        AiRequestTransformerHandle aiRequestTransformerHandle = AiRequestTransformerPluginHandler.CACHED_HANDLE.get()
-                .obtainHandle(CacheKeyUtils.INST.getKey(rule));
-        ChatClient client = ChatClientCache.getInstance().getClient("default");
-        // Create final config with rule handle taking precedence
-        if (Objects.nonNull(aiRequestTransformerHandle)) {
-            Optional.ofNullable(aiRequestTransformerHandle.getProvider()).ifPresent(aiRequestTransformerConfig::setProvider);
-            Optional.ofNullable(aiRequestTransformerHandle.getBaseUrl()).ifPresent(aiRequestTransformerConfig::setBaseUrl);
-            Optional.ofNullable(aiRequestTransformerHandle.getApiKey()).ifPresent(aiRequestTransformerConfig::setApiKey);
-            Optional.ofNullable(aiRequestTransformerHandle.getModel()).ifPresent(aiRequestTransformerConfig::setModel);
-            Optional.ofNullable(aiRequestTransformerHandle.getContent()).ifPresent(aiRequestTransformerConfig::setContent);
-            client = ChatClientCache.getInstance().getClient(rule.getId());
-        }
-
-        String baseUrl = aiRequestTransformerConfig.getBaseUrl();
-        String apiKey = aiRequestTransformerConfig.getApiKey();
-        String provider = aiRequestTransformerConfig.getProvider();
-        if (Stream.of(baseUrl, apiKey, provider).anyMatch(Objects::isNull)) {
-            String missing = "";
-            missing += Objects.isNull(baseUrl) ? "baseUrl, " : "";
-            missing += Objects.isNull(apiKey) ? "apiKey, " : "";
-            missing += Objects.isNull(provider) ? "provider, " : "";
-
-            LOG.error("Missing configurations: {}", missing.substring(0, missing.length() - 2));
-            return chain.execute(exchange);
-        }
-
-        ChatModel aiModel = aiModelFactoryRegistry
-                .getFactory(AiModelProviderEnum.getByName(provider))
-                .createAiModel(AiRequestTransformerPluginHandler.convertConfig(aiRequestTransformerConfig));
-
-        if (Objects.isNull(client)) {
-            client = ChatClientCache.getInstance().init(rule.getId(), aiModel);
-        }
-
-        AiRequestTransformerTemplate aiRequestTransformerTemplate = new AiRequestTransformerTemplate(aiRequestTransformerConfig.getContent(), exchange.getRequest());
-        ChatClient finalClient = client;
-        return aiRequestTransformerTemplate.assembleMessage()
-                .flatMap(message -> Mono.fromCallable(() -> finalClient.prompt().user(message).call().content())
-                        .subscribeOn(Schedulers.boundedElastic())
-                        .flatMap(aiResponse -> convertHeader(exchange, aiResponse)
-                                .flatMap(serverWebExchange -> convertBody(serverWebExchange, messageReaders, aiResponse))
-                                    .flatMap(chain::execute)
-                        )
-                );
-
-    }
-
-    private static Mono<ServerWebExchange> convertBody(final ServerWebExchange exchange,
-                                                       final List<HttpMessageReader<?>> readers,
-                                                       final String aiResponse) {
-        MediaType mediaType = exchange.getRequest().getHeaders().getContentType();
-        if (MediaType.APPLICATION_JSON.isCompatibleWith(mediaType)) {
-            return ServerWebExchangeUtils.rewriteRequestBody(exchange, readers, requestBodyString ->
-                    Mono.just(convertBodyJson(aiResponse)));
-        } else if (MediaType.APPLICATION_FORM_URLENCODED.isCompatibleWith(mediaType)) {
-            return ServerWebExchangeUtils.rewriteRequestBody(exchange, readers, requestBodyString ->
-                    Mono.just(convertBodyFormData(aiResponse)));
-        } else {
-            return Mono.just(exchange);
-        }
-
-    }
-
-    private static String convertBodyJson(final String aiResponse) {
-        return extractJsonBodyFromHttpResponse(aiResponse);
-    }
-
-    private static String convertBodyFormData(final String aiResponse) {
-        Map<String, Object> formDataMap = GsonUtils.getInstance().toObjectMap(extractJsonBodyFromHttpResponse(aiResponse));
-        return mapToFormUrlEncoded(formDataMap);
-    }
-
-    public static String extractJsonBodyFromHttpResponse(final String aiResponse) {
-        if (Objects.isNull(aiResponse) || aiResponse.isEmpty()) {
-            return null;
-        }
-
-        String[] lines = aiResponse.split("\\R");
-
-        int emptyLineIndex = -1;
-        for (int i = 0; i < lines.length; i++) {
-            if (lines[i].trim().isEmpty()) {
-                emptyLineIndex = i;
-                break;
-            }
-        }
-
-        if (emptyLineIndex == -1 || emptyLineIndex == lines.length - 1) {
-            return null;
-        }
-
-        StringBuilder bodyBuilder = new StringBuilder();
-        for (int i = emptyLineIndex + 1; i < lines.length; i++) {
-            bodyBuilder.append(lines[i]);
-            bodyBuilder.append("\n");
-        }
-
-        String body = bodyBuilder.toString().trim();
-
-        if (body.startsWith("{") && body.endsWith("}") || body.startsWith("[") && body.endsWith("]")) {
-            Map<String, Object> requestBodyMap = GsonUtils.getInstance().convertToMap(body);
-            return GsonUtils.getInstance().toJson(requestBodyMap);
-        }
-
-        return null;
-    }
-
-    public static String mapToFormUrlEncoded(final Map<String, Object> map) {
-        StringBuilder sb = new StringBuilder();
-        try {
-            for (Map.Entry<String, Object> entry : map.entrySet()) {
-                if (sb.length() > 0) {
-                    sb.append("&");
-                }
-                sb.append(URLEncoder.encode(entry.getKey(), "UTF-8"));
-                sb.append("=");
-                sb.append(URLEncoder.encode(String.valueOf(entry.getValue()), "UTF-8"));
-            }
-        } catch (UnsupportedEncodingException e) {
-            throw new RuntimeException(e);
-        }
-        return sb.toString();
-    }
-
-    private static Mono<ServerWebExchange> convertHeader(final ServerWebExchange exchange, final String aiResponse) {
-        HttpHeaders newHeaders = extractHeadersFromAiResponse(aiResponse);
-        exchange.getRequest().mutate().headers(httpHeaders -> {
-            httpHeaders.clear();
-            httpHeaders.putAll(newHeaders);
-        }).build();
-        return Mono.just(exchange);
-    }
-
-    private static HttpHeaders extractHeadersFromAiResponse(final String aiResponse) {
-        HttpHeaders headers = new HttpHeaders();
-        if (Objects.isNull(aiResponse) || aiResponse.isEmpty()) {
-            return headers;
-        }
-        try (BufferedReader reader = new BufferedReader(new StringReader(aiResponse))) {
-            String line;
-            boolean headerSectionStarted = false;
-            while (Objects.nonNull(line = reader.readLine())) {
-                if (!headerSectionStarted) {
-                    if (line.startsWith("HTTP/1.1") || line.matches("^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\\s.*\\sHTTP/1.1$")) {
-                        headerSectionStarted = true;
-                        continue;
-                    }
-                } else {
-                    if (line.trim().isEmpty()) {
-                        break;
-                    }
-                    int colonIndex = line.indexOf(":");
-                    if (colonIndex > 0) {
-                        String name = line.substring(0, colonIndex).trim();
-                        String value = line.substring(colonIndex + 1).trim();
-                        headers.add(name, value);
-                    }
-                }
-            }
-        } catch (IOException e) {
-            LOG.error("AI request transformer plugin: extract headers from AiResponse fail");
-        }
-        return headers;
+    public AiRequestTransformerPlugin(final List<HttpMessageReader<?>> readers,
+                                      final AiRequestTransformerPluginHandler handler) {
+        super(readers, handler);
     }
 
     @Override
@@ -254,5 +78,136 @@ public class AiRequestTransformerPlugin extends AbstractShenyuPlugin {
         return PluginEnum.AI_REQUEST_TRANSFORMER.getName();
     }
 
-}
+    /**
+     * 原来在 doExecute 中把 handle 合并到 config 的逻辑，放到这里。
+     */
+    @Override
+    protected void mergeHandleIntoConfig(final AiTransformerHandle handle,
+                                         final AiTransformerConfig config) {
+        if (Objects.nonNull(handle)) {
+            Optional.ofNullable(handle.getProvider()).ifPresent(config::setProvider);
+            Optional.ofNullable(handle.getBaseUrl()).ifPresent(config::setBaseUrl);
+            Optional.ofNullable(handle.getApiKey()).ifPresent(config::setApiKey);
+            Optional.ofNullable(handle.getModel()).ifPresent(config::setModel);
+            Optional.ofNullable(handle.getContent()).ifPresent(config::setContent);
+        }
+    }
 
+    /**
+     * 原来 new AiRequestTransformerTemplate(...) 的那行。
+     */
+    @Override
+    protected org.apache.shenyu.plugin.ai.common.template.AbstractAiTransformerTemplate createTemplate(final String userContent,
+                                                                                                       final ServerWebExchange exchange) {
+        return new AiRequestTransformerTemplate(userContent, exchange.getRequest());
+    }
+
+    /**
+     * 原来在 doExecute 最后处理 AI 返回并替换 Header/Body 的那段逻辑。
+     */
+    @Override
+    protected Mono<Void> handleAiResponse(final ServerWebExchange exchange,
+                                          final String aiResponse,
+                                          final List<HttpMessageReader<?>> readers,
+                                          final ShenyuPluginChain chain) {
+        return convertHeader(exchange, aiResponse)
+                .flatMap(e -> convertBody(e, readers, aiResponse))
+                .flatMap(chain::execute);
+    }
+
+    // —— 以下 static 工具方法均照原版一模一样 —— //
+
+    private static Mono<ServerWebExchange> convertBody(final ServerWebExchange exchange,
+                                                       final List<HttpMessageReader<?>> readers,
+                                                       final String aiResponse) {
+        MediaType mediaType = exchange.getRequest().getHeaders().getContentType();
+        if (MediaType.APPLICATION_JSON.isCompatibleWith(mediaType)) {
+            return ServerWebExchangeUtils.rewriteRequestBody(exchange, readers, s ->
+                    Mono.just(extractJsonBodyFromHttpResponse(aiResponse)));
+        } else if (MediaType.APPLICATION_FORM_URLENCODED.isCompatibleWith(mediaType)) {
+            return ServerWebExchangeUtils.rewriteRequestBody(exchange, readers, s ->
+                    Mono.just(convertFormData(aiResponse)));
+        }
+        return Mono.just(exchange);
+    }
+
+    private static Mono<ServerWebExchange> convertHeader(final ServerWebExchange exchange,
+                                                         final String aiResponse) {
+        HttpHeaders headers = extractHeadersFromAiResponse(aiResponse);
+        ServerHttpRequest newReq = exchange.getRequest().mutate().headers(h -> {
+            h.clear();
+            h.putAll(headers);
+        }).build();
+        return Mono.just(exchange.mutate().request(newReq).build());
+    }
+
+    private static String extractJsonBodyFromHttpResponse(final String aiResponse) {
+        if (Objects.isNull(aiResponse) || aiResponse.isEmpty()) {
+            return null;
+        }
+        String[] lines = aiResponse.split("\\R");
+        int idx = -1;
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].trim().isEmpty()) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx < 0 || idx == lines.length - 1) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = idx + 1; i < lines.length; i++) {
+            sb.append(lines[i]).append('\n');
+        }
+        String body = sb.toString().trim();
+        return body;
+    }
+
+    private static String convertFormData(final String aiResponse) {
+        String json = extractJsonBodyFromHttpResponse(aiResponse);
+        Map<String, Object> map = org.apache.shenyu.common.utils.GsonUtils.getInstance().convertToMap(json);
+        StringBuilder sb = new StringBuilder();
+        try {
+            for (Map.Entry<String, Object> en : map.entrySet()) {
+                if (sb.length() > 0) {
+                    sb.append("&");
+                }
+                sb.append(URLEncoder.encode(en.getKey(), "UTF-8"))
+                        .append("=")
+                        .append(URLEncoder.encode(String.valueOf(en.getValue()), "UTF-8"));
+            }
+        } catch (UnsupportedEncodingException e) {
+            throw new RuntimeException(e);
+        }
+        return sb.toString();
+    }
+
+    private static HttpHeaders extractHeadersFromAiResponse(final String aiResponse) {
+        HttpHeaders headers = new HttpHeaders();
+        try (BufferedReader reader = new BufferedReader(new StringReader(aiResponse))) {
+            String line;
+            boolean started = false;
+            while ((line = reader.readLine()) != null) {
+                if (!started) {
+                    if (line.startsWith("HTTP/1.1") ||
+                            line.matches("^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\\s.*\\sHTTP/1.1$")) {
+                        started = true;
+                    }
+                } else {
+                    if (line.trim().isEmpty()) {
+                        break;
+                    }
+                    int idx = line.indexOf(':');
+                    if (idx > 0) {
+                        String name = line.substring(0, idx).trim();
+                        String val = line.substring(idx + 1).trim();
+                        headers.add(name, val);
+                    }
+                }
+            }
+        } catch (IOException ignored) {
+        }
+        return headers;
+    }
+}

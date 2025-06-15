@@ -15,16 +15,14 @@
  * limitations under the License.
  */
 
-package org.apache.shenyu.common.dto.convert.rule;
-
-import org.apache.shenyu.common.enums.AiModelProviderEnum;
+package org.apache.shenyu.common.dto.convert.plugin;
 
 import java.util.Objects;
 
 /**
- * this is Ai Request Transformer plugin handler.
+ * this is Ai Request And Response RespTransformer config.
  */
-public class AiRequestTransformerHandle implements RuleHandle {
+public class AiTransformerConfig {
 
     /**
      * provider.
@@ -141,21 +139,6 @@ public class AiRequestTransformerHandle implements RuleHandle {
         this.content = content;
     }
 
-    /**
-     * new default instance.
-     *
-     * @return AiProxyHandle
-     */
-    public static AiRequestTransformerHandle newDefaultInstance() {
-        AiRequestTransformerHandle aiRequestTransformerHandle = new AiRequestTransformerHandle();
-        aiRequestTransformerHandle.setProvider(AiModelProviderEnum.OPEN_AI.getName());
-        aiRequestTransformerHandle.setBaseUrl("https://api.openai.com");
-        aiRequestTransformerHandle.setApiKey("your-api-key");
-        aiRequestTransformerHandle.setModel("gpt-4o-mini");
-        aiRequestTransformerHandle.setContent("user-content");
-        return aiRequestTransformerHandle;
-    }
-
     @Override
     public boolean equals(final Object o) {
         if (this == o) {
@@ -164,7 +147,7 @@ public class AiRequestTransformerHandle implements RuleHandle {
         if (Objects.isNull(o) || getClass() != o.getClass()) {
             return false;
         }
-        AiRequestTransformerHandle that = (AiRequestTransformerHandle) o;
+        AiTransformerConfig that = (AiTransformerConfig) o;
         return Objects.equals(provider, that.provider)
                 && Objects.equals(baseUrl, that.baseUrl)
                 && Objects.equals(apiKey, that.apiKey)
@@ -179,7 +162,7 @@ public class AiRequestTransformerHandle implements RuleHandle {
 
     @Override
     public String toString() {
-        return "AiRequestTransformerHandler{"
+        return "AiRequestTransformerConfig{"
                 + "provider='" + provider + '\''
                 + ", baseUrl='" + baseUrl + '\''
                 + ", apiKey='" + apiKey + '\''
@@ -187,4 +170,5 @@ public class AiRequestTransformerHandle implements RuleHandle {
                 + ", content=" + content
                 + '}';
     }
+
 }

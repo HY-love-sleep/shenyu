@@ -40,15 +40,17 @@ import java.util.List;
 public class AiRequestTransformerPluginConfiguration {
 
     /**
-     * Ai Request Transformer plugin.
+     * Ai Transformer plugin.
      *
      * @param configurer the configurer
-     * @param aiModelFactoryList the aiModelFactoryList
+     * @param handler the transformer plugin
      * @return the shenyu plugin
      */
     @Bean
-    public ShenyuPlugin aiProxyPlugin(final ServerCodecConfigurer configurer, final List<AiModelFactory> aiModelFactoryList) {
-        return new AiRequestTransformerPlugin(configurer.getReaders(), aiModelFactoryRegistry(aiModelFactoryList));
+    public ShenyuPlugin aiRequestTransformerPlugin(
+            final ServerCodecConfigurer configurer,
+            final AiRequestTransformerPluginHandler handler) {
+        return new AiRequestTransformerPlugin(configurer.getReaders(), handler);
     }
 
     /**

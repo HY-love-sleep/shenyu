@@ -20,6 +20,7 @@ package org.apache.shenyu.plugin.ai.transformer.request.template;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.shenyu.plugin.ai.common.template.AbstractAiTransformerTemplate;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
@@ -42,7 +43,7 @@ import java.util.stream.Collectors;
 /**
  * this is the aiRequestTransformerTemplate.
  */
-public class AiRequestTransformerTemplate {
+public class AiRequestTransformerTemplate extends AbstractAiTransformerTemplate {
 
     /**
      * sysContent.
@@ -74,10 +75,41 @@ public class AiRequestTransformerTemplate {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public AiRequestTransformerTemplate(final String userContent, final ServerHttpRequest originalRequest) {
-        this.userContent = userContent;
+    public AiRequestTransformerTemplate(final String userContent,
+                                        final ServerHttpRequest originalRequest) {
+        super(SYS_CONTENT, userContent, "request");
         this.originalRequest = originalRequest;
     }
+
+    @Override
+    protected Mono<JsonNode> buildPayloadJson() {
+        JsonNode headersJson = headersToJson(originalRequest.getHeaders());
+        MediaType contentType = originalRequest.getHeaders().getContentType();
+        return bodyToString(originalRequest.getBody())
+                .map(bodyString -> {
+                    ObjectNode requestNode = objectMapper.createObjectNode();
+                    requestNode.set("headers", headersJson);
+                    if (contentType != null) {
+                        if (MediaType.APPLICATION_JSON.isCompatibleWith(contentType)) {
+                            try {
+                                JsonNode bodyJson = objectMapper.readTree(bodyString);
+                                requestNode.set("body", bodyJson);
+                            } catch (Exception e) {
+                                requestNode.put("body", bodyString);
+                            }
+                        } else if (MediaType.APPLICATION_FORM_URLENCODED.isCompatibleWith(contentType)) {
+                            Map<String, String> formMap = parseFormUrlEncoded(bodyString);
+                            requestNode.set("body", objectMapper.valueToTree(formMap));
+                        } else {
+                            requestNode.put("body", bodyString);
+                        }
+                    } else {
+                        requestNode.put("body", bodyString);
+                    }
+                    return requestNode;
+                });
+    }
+
 
     /**
      * headersToJson.
@@ -138,52 +170,4 @@ public class AiRequestTransformerTemplate {
         }
     }
 
-    /**
-     * assembleMessage .
-     *
-     * @return message
-     */
-    public Mono<String> assembleMessage() {
-        JsonNode headersJson = headersToJson(originalRequest.getHeaders());
-
-        MediaType contentType = originalRequest.getHeaders().getContentType();
-
-        return bodyToString(originalRequest.getBody())
-                .flatMap(bodyString -> {
-                    ObjectNode rootNode = objectMapper.createObjectNode();
-                    rootNode.put("system_prompt", SYS_CONTENT);
-                    rootNode.put("user_prompt", userContent);
-
-                    ObjectNode requestNode = objectMapper.createObjectNode();
-                    requestNode.set("headers", headersJson);
-
-                    if (Objects.nonNull(contentType)) {
-                        if (MediaType.APPLICATION_JSON.isCompatibleWith(contentType)) {
-                            try {
-                                JsonNode bodyJsonNode = objectMapper.readTree(bodyString);
-                                requestNode.set("body", bodyJsonNode);
-                            } catch (Exception e) {
-                                requestNode.put("body", bodyString);
-                            }
-                        } else if (MediaType.APPLICATION_FORM_URLENCODED.isCompatibleWith(contentType)) {
-                            Map<String, String> formMap = parseFormUrlEncoded(bodyString);
-                            JsonNode formJson = objectMapper.valueToTree(formMap);
-                            requestNode.set("body", formJson);
-                        } else {
-                            requestNode.put("body", bodyString);
-                        }
-                    } else {
-                        requestNode.put("body", bodyString);
-                    }
-
-                    rootNode.set("request", requestNode);
-
-                    try {
-                        String jsonString = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(rootNode);
-                        return Mono.just(jsonString);
-                    } catch (Exception e) {
-                        return Mono.error(e);
-                    }
-                });
-    }
 }

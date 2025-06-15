@@ -15,14 +15,16 @@
  * limitations under the License.
  */
 
-package org.apache.shenyu.common.dto.convert.plugin;
+package org.apache.shenyu.common.dto.convert.rule;
+
+import org.apache.shenyu.common.enums.AiModelProviderEnum;
 
 import java.util.Objects;
 
 /**
- * this is Ai Request Transformer config.
+ * this is Ai Request And Response Transformer plugin handler.
  */
-public class AiRequestTransformerConfig {
+public class AiTransformerHandle implements RuleHandle {
 
     /**
      * provider.
@@ -139,6 +141,21 @@ public class AiRequestTransformerConfig {
         this.content = content;
     }
 
+    /**
+     * new default instance.
+     *
+     * @return AiProxyHandle
+     */
+    public static AiTransformerHandle newDefaultInstance() {
+        AiTransformerHandle aiTransformerHandle = new AiTransformerHandle();
+        aiTransformerHandle.setProvider(AiModelProviderEnum.OPEN_AI.getName());
+        aiTransformerHandle.setBaseUrl("https://api.openai.com");
+        aiTransformerHandle.setApiKey("your-api-key");
+        aiTransformerHandle.setModel("gpt-4o-mini");
+        aiTransformerHandle.setContent("user-content");
+        return aiTransformerHandle;
+    }
+
     @Override
     public boolean equals(final Object o) {
         if (this == o) {
@@ -147,7 +164,7 @@ public class AiRequestTransformerConfig {
         if (Objects.isNull(o) || getClass() != o.getClass()) {
             return false;
         }
-        AiRequestTransformerConfig that = (AiRequestTransformerConfig) o;
+        AiTransformerHandle that = (AiTransformerHandle) o;
         return Objects.equals(provider, that.provider)
                 && Objects.equals(baseUrl, that.baseUrl)
                 && Objects.equals(apiKey, that.apiKey)
@@ -162,7 +179,7 @@ public class AiRequestTransformerConfig {
 
     @Override
     public String toString() {
-        return "AiRequestTransformerConfig{"
+        return "AiRequestTransformerHandler{"
                 + "provider='" + provider + '\''
                 + ", baseUrl='" + baseUrl + '\''
                 + ", apiKey='" + apiKey + '\''
@@ -170,5 +187,4 @@ public class AiRequestTransformerConfig {
                 + ", content=" + content
                 + '}';
     }
-
 }
