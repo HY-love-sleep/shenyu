@@ -48,6 +48,9 @@
         <module>shenyu-registry</module>
         <module>shenyu-kubernetes-controller</module>
         <module>shenyu-infra</module>
+        <module>
+            shenyu-spring-boot-starter/shenyu-spring-boot-starter-plugin/shenyu-spring-boot-starter-plugin-sec-content-security
+        </module>
     </modules>
 
     <licenses>

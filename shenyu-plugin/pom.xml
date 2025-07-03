@@ -50,6 +50,9 @@
         <module>shenyu-plugin-security</module>
         <module>shenyu-plugin-fault-tolerance</module>
         <module>shenyu-plugin-ai</module>
+        <module>shenyu-plugin-sec</module>
+        <module>shenyu-plugin-sec/shenyu-plugin-sec-sensitive-words</module>
+        <module>shenyu-plugin-sec/shenyu-plugin-sec-content</module>
     </modules>
 
     <dependencies>
