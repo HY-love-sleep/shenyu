@@ -38,6 +38,7 @@ public class ContentSecurityPluginDataHandler implements PluginDataHandler {
         });
     }
 
+    // todo: use plugin enum
     @Override
     public String pluginNamed() {
         return "ContentSecurityPlugin";

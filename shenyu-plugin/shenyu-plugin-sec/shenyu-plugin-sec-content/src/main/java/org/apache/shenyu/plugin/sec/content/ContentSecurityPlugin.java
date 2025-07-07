@@ -41,15 +41,14 @@ public class ContentSecurityPlugin extends AbstractShenyuPlugin {
                                    ShenyuPluginChain chain,
                                    SelectorData selector,
                                    RuleData rule) {
-        // 1. 拿到规则级配置
         ContentSecurityHandle handle = ContentSecurityPluginDataHandler.CACHED_HANDLE
                 .get().obtainHandle(CacheKeyUtils.INST.getKey(rule));
         if (handle == null) {
-            // 没配就放行
+            LOG.info("ContentSecurityPlugin check by rule error, rule is null, pass from the plugin.");
             return chain.execute(exchange);
         }
 
-        // 2. 前置：异步检查 prompt
+        // Asynchronous check prompt
         Mono<ServerWebExchange> preChecked = ServerWebExchangeUtils.rewriteRequestBody(
                 exchange,
                 messageReaders,
@@ -74,9 +73,10 @@ public class ContentSecurityPlugin extends AbstractShenyuPlugin {
 
         // 先执行业务链，包括 AiProxy 插件，它会在 exchange 上设置
         // Constants.CLIENT_RESPONSE_ATTR 属性，保留下游实际的 ClientResponse
-        Mono<Void> callDownstream = chain.execute(exchange);
+        Mono<Void> callDownstream = preChecked
+                .flatMap(chain::execute);
 
-        // 然后在它完成之后，异步拿到这份 ClientResponse，读取响应体、检测并写回
+        // 异步拿到 ClientResponse，读取响应体、检测并写回
         Mono<Void> postCheck = callDownstream.then(
                 Mono.defer(() -> {
                     // 1) 从 exchange 上取出下游的 ClientResponse
@@ -120,7 +120,7 @@ public class ContentSecurityPlugin extends AbstractShenyuPlugin {
                 })
         );
 
-        // 6) 全链路合并，并处理前置检测抛出的异常
+        // 全链路合并，并处理前置检测抛出的异常
         return callDownstream
                 .then(postCheck)
                 .onErrorResume(e -> {

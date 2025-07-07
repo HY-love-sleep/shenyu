@@ -290,7 +290,11 @@ public enum PluginEnum {
     /**
      * Basic-auth plugin enum.
      */
-    BASIC_AUTH(35, 0, "basicAuth");
+    BASIC_AUTH(35, 0, "basicAuth"),
+
+    CONTENT_SECURITY(888, 0, "contentSecurity"),
+
+    SENSITIVE_SECURITY(889, 0, "SensitiveWord");
     
     /**
      * When the application starts, the plugin is cached and we can obtained by name.

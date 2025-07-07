@@ -38,6 +38,7 @@ public class ContentSecurityChecker {
                 .retrieve()
                 .bodyToMono(SafetyCheckResponse.class)
                 .doOnNext(resp -> {
+                    LOG.info("zkrj res:{}", resp);
                     SafetyCheckData d = resp.getData();
                     if (d != null) {
                         LOG.info("=> promptCategory={} contentCategory={}",
@@ -76,6 +77,15 @@ public class ContentSecurityChecker {
 
         public void setData(SafetyCheckData data) {
             this.data = data;
+        }
+
+        @Override
+        public String toString() {
+            return "SafetyCheckResponse{" +
+                    "code='" + code + '\'' +
+                    ", msg='" + msg + '\'' +
+                    ", data=" + data +
+                    '}';
         }
     }
 
