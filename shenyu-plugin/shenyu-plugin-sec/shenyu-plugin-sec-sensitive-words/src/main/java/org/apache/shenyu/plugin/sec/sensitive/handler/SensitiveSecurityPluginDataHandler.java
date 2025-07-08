@@ -43,7 +43,6 @@ public class SensitiveSecurityPluginDataHandler implements PluginDataHandler {
         if (pluginData == null || !Boolean.TRUE.equals(pluginData.getEnabled())) {
             return;
         }
-        // 1) 解析 RedisConfigProperties
         RedisConfigProperties props = GsonUtils.getInstance()
                 .fromJson(pluginData.getConfig(), RedisConfigProperties.class);
         if (Objects.isNull(props) || props.getHost() == null) {
@@ -51,16 +50,12 @@ public class SensitiveSecurityPluginDataHandler implements PluginDataHandler {
             return;
         }
         String pluginName = PluginEnum.SENSITIVE_SECURITY.getName();
-        // 2) 如果尚未缓存，或配置有变，(可选)对比 props.equals(...) 决定是否重建
         if (Objects.isNull(REDIS_TEMPLATES.get().obtainHandle(pluginName))) {
-            // 3) 构造 LettuceConnectionFactory
             RedisConnectionFactory factory = new RedisConnectionFactory(props);
-            // 4) 包装 Spring ReactiveRedisTemplate
             ReactiveRedisTemplate<String, String> template =
                     new ShenyuReactiveRedisTemplate<>(
                             factory.getLettuceConnectionFactory(),
                             ShenyuRedisSerializationContext.stringSerializationContext());
-            // 5) 缓存
             REDIS_TEMPLATES.get().cachedHandle(pluginName, template);
             LOGGER.info("SensitiveSecurityPlugin: cached ReactiveRedisTemplate for {}", pluginName);
         }

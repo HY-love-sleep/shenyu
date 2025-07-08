@@ -50,7 +50,6 @@ public class ContentSecurityChecker {
     }
 
     public static class SafetyCheckResponse {
-        // 接口返回的 code 是字符串形式的 "200"、"401" 等
         private String code;
         private String msg;
         private SafetyCheckData data;
@@ -93,14 +92,10 @@ public class ContentSecurityChecker {
      * 响应中 data 字段的结构
      */
     public static class SafetyCheckData {
-        // 用户指令检测结果列表
         private List<RiskItem> promptResult;
-        // 最终分类："合规" / "疑似" / "违规"
         private String promptCategory;
-        // 对于“违规”或“疑似”指令的正向答复
         private String answer;
 
-        // 生成内容检测结果列表
         private List<RiskItem> contentResult;
         private String contentCategory;
 
@@ -147,15 +142,11 @@ public class ContentSecurityChecker {
 
     public static class SafetyCheckRequest {
 
-        // 必填：接口凭证
         private String accessKey;
         private String accessToken;
         private String appId;
-        // 用户指令
         private String prompt;
-        // 模型生成内容
         private String content;
-        // 可选：场景编码
         private String promptSceneCode;
         private String contentSceneCode;
 

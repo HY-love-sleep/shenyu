@@ -2,6 +2,7 @@ package org.apache.shenyu.plugin.sec.content.handler;
 
 import org.apache.shenyu.common.dto.RuleData;
 import org.apache.shenyu.common.dto.convert.rule.ContentSecurityHandle;
+import org.apache.shenyu.common.enums.PluginEnum;
 import org.apache.shenyu.plugin.base.handler.PluginDataHandler;
 import org.apache.shenyu.plugin.base.cache.CommonHandleCache;
 import org.apache.shenyu.plugin.base.utils.BeanHolder;
@@ -24,9 +25,7 @@ public class ContentSecurityPluginDataHandler implements PluginDataHandler {
     @Override
     public void handlerRule(final RuleData ruleData) {
         Optional.ofNullable(ruleData.getHandle()).ifPresent(handleJson -> {
-            // 反序列化JSON为ContentSecurityHandle对象
             ContentSecurityHandle handle = GsonUtils.getInstance().fromJson(handleJson, ContentSecurityHandle.class);
-            // 缓存该配置，key使用RuleData生成的唯一键
             CACHED_HANDLE.get().cachedHandle(CacheKeyUtils.INST.getKey(ruleData), handle);
         });
     }
@@ -41,8 +40,7 @@ public class ContentSecurityPluginDataHandler implements PluginDataHandler {
     // todo: use plugin enum
     @Override
     public String pluginNamed() {
-        return "ContentSecurityPlugin";
+        return PluginEnum.CONTENT_SECURITY.getName();
     }
 
-    // 其他未用接口方法可使用默认实现（如 handlerPlugin 等）
 }

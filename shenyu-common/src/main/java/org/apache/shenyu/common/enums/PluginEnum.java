@@ -292,7 +292,7 @@ public enum PluginEnum {
      */
     BASIC_AUTH(35, 0, "basicAuth"),
 
-    CONTENT_SECURITY(888, 0, "contentSecurity"),
+    CONTENT_SECURITY(888, 0, "ContentSecurityPlugin"),
 
     SENSITIVE_SECURITY(889, 0, "SensitiveWord");
     

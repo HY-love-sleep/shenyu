@@ -61,7 +61,8 @@ public class ContentSecurityPlugin extends AbstractShenyuPlugin {
                         .flatMap(resp -> {
                             String cat = resp.getData().getPromptCategory();
                             if ("违规".equals(cat) || "疑似".equals(cat)) {
-                                // 直接抛异常，到 onErrorResume 里去返回
+                                // Throw the exception directly and return it to onErrorResume
+                                // todo: Normalized exception returns, Refer to the interface documentation
                                 String err = String.format(
                                         "{\"code\":1400,\"msg\":\"内容不符合规范\",\"detail\":\"检测结果：%s\"}",
                                         cat);
@@ -71,24 +72,23 @@ public class ContentSecurityPlugin extends AbstractShenyuPlugin {
                         })
         ).thenReturn(exchange);
 
-        // 先执行业务链，包括 AiProxy 插件，它会在 exchange 上设置
-        // Constants.CLIENT_RESPONSE_ATTR 属性，保留下游实际的 ClientResponse
+        // Execute chain
         Mono<Void> callDownstream = preChecked
                 .flatMap(chain::execute);
 
-        // 异步拿到 ClientResponse，读取响应体、检测并写回
+        // Get the ClientResponse asynchronously, read the response body, detect it, and write it back
         Mono<Void> postCheck = callDownstream.then(
                 Mono.defer(() -> {
-                    // 1) 从 exchange 上取出下游的 ClientResponse
+                    // Take out the downstream ClientResponse from the exchange
                     ClientResponse clientResponse = exchange.getAttribute(Constants.CLIENT_RESPONSE_ATTR);
                     if (null == clientResponse) {
-                        // 如果没有拿到，下游不是用 writeWith 写的，就不做拦截
+                        // If you don't get it, the downstream is not written with writeWith, so you won't intercept it
                         return Mono.empty();
                     }
-                    // 2) 读取响应体为 String
+                    // The read response body is String
                     return clientResponse.bodyToMono(String.class)
                             .flatMap(originalBody -> {
-                                // 3) 异步调用安全检测
+                                // Asynchronous invocation of security detections
                                 return ContentSecurityChecker
                                         .checkText(ContentSecurityChecker.SafetyCheckRequest.forContent(
                                                 handle.getAccessKey(),
@@ -97,18 +97,17 @@ public class ContentSecurityPlugin extends AbstractShenyuPlugin {
                                                 originalBody), handle)
                                         .flatMap(resp -> {
                                             String cat = resp.getData().getContentCategory();
-                                            // 4) 如果“违规”或“疑似”，返回拦截 JSON
                                             String toWrite;
+                                            // todo: like up
                                             if ("违规".equals(cat) || "疑似".equals(cat)) {
                                                 toWrite = String.format(
                                                         "{\"code\":1400,\"msg\":\"内容不符合规范\",\"detail\":\"检测结果：%s\"}",
                                                         cat);
                                             } else {
-                                                // 合规就原样返回
+                                                // Compliance is returned as is
                                                 toWrite = originalBody;
                                             }
-                                            // 5) 用 ResponseUtils 把内容写回客户端
-                                            //    注意：这里把 publisher 换成 Mono.just(toWrite)
+                                            // Use ResponseUtils to write the content back to the client
                                             return ResponseUtils.writeWith(
                                                     clientResponse,
                                                     exchange,
@@ -120,7 +119,7 @@ public class ContentSecurityPlugin extends AbstractShenyuPlugin {
                 })
         );
 
-        // 全链路合并，并处理前置检测抛出的异常
+        // The end-to-end merges and handles the exceptions thrown by the pre-detection
         return callDownstream
                 .then(postCheck)
                 .onErrorResume(e -> {
@@ -133,7 +132,7 @@ public class ContentSecurityPlugin extends AbstractShenyuPlugin {
 
     @Override
     public String named() {
-        return "ContentSecurityPlugin";
+        return PluginEnum.CONTENT_SECURITY.getName();
     }
 
     @Override

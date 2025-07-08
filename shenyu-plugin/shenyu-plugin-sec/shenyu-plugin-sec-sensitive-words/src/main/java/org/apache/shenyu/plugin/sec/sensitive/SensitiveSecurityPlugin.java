@@ -48,7 +48,7 @@ public class SensitiveSecurityPlugin extends AbstractShenyuPlugin {
 
     @Override
     public int getOrder() {
-        // 确保在 aiProxy 之前、比 ContentSecurityPlugin 更前
+        // before aiProxy and ContentSecurityPlugin
         return PluginEnum.AI_PROXY.getCode() - 2;
     }
 
@@ -58,7 +58,6 @@ public class SensitiveSecurityPlugin extends AbstractShenyuPlugin {
                                    final SelectorData selector,
                                    final RuleData rule) {
 
-        // 1) 拿规则级配置
         SensitiveSecurityHandle handle = SensitiveSecurityPluginDataHandler.CACHED_HANDLE
                 .get().obtainHandle(CacheKeyUtils.INST.getKey(rule));
         if (handle == null) {
@@ -66,7 +65,7 @@ public class SensitiveSecurityPlugin extends AbstractShenyuPlugin {
         }
         String redisKey = handle.getRedisKey();
 
-        // 2) 拿插件级缓存的 ReactiveRedisTemplate
+        // 2) get cached ReactiveRedisTemplate
         ReactiveRedisTemplate<String, String> redisTemplate =
                 SensitiveSecurityPluginDataHandler.REDIS_TEMPLATES
                         .get()
@@ -76,9 +75,9 @@ public class SensitiveSecurityPlugin extends AbstractShenyuPlugin {
             return chain.execute(exchange);
         }
 
-        // 3) 前置：异步读取 body，做 AC 树匹配
+        // 3) get body async
         return ServerWebExchangeUtils.rewriteRequestBody(exchange, readers, promptBody -> {
-                    // 3.1) 看缓存里有没有已建好的树
+                    // use cached ac tree
                     AhoCorasick tree = AC_TREES.get().obtainHandle(PluginEnum.SENSITIVE_SECURITY.getName());
                     if (tree != null) {
                         List<String> hits = tree.search(promptBody);
@@ -90,7 +89,7 @@ public class SensitiveSecurityPlugin extends AbstractShenyuPlugin {
                         }
                         return Mono.just(promptBody);
                     }
-                    // 3.2) 第一次：拉全量词表、构建树并缓存
+                    // build ac tree from redis and cache it
                     return redisTemplate.opsForSet()
                             .members(redisKey)
                             .collectList()
@@ -101,6 +100,7 @@ public class SensitiveSecurityPlugin extends AbstractShenyuPlugin {
                                 AC_TREES.get().cachedHandle(PluginEnum.SENSITIVE_SECURITY.getName(), ac);
                                 List<String> hits = ac.search(promptBody);
                                 if (!hits.isEmpty()) {
+                                    // todo: this is a sample
                                     String err = String.format(
                                             "{\"code\":1500,\"msg\":\"请求包含敏感词\",\"detail\":%s}",
                                             hits);
@@ -109,9 +109,9 @@ public class SensitiveSecurityPlugin extends AbstractShenyuPlugin {
                                 return Mono.just(promptBody);
                             });
                 })
-                // 4) 用“已缓存 body”的 exchange 调用下游
+                // Call downstream with the Exchange of the "cached body".
                 .flatMap(chain::execute)
-                // 5) 统一异常处理
+                // Unified exception handling
                 .onErrorResume(e -> {
                     if (e instanceof ResponsiveException) {
                         return WebFluxResultUtils.failedResult((ResponsiveException) e);
