@@ -138,6 +138,17 @@ public class ContentSecurityChecker {
         public void setContentCategory(String contentCategory) {
             this.contentCategory = contentCategory;
         }
+
+        @Override
+        public String toString() {
+            return "SafetyCheckData{" +
+                    "promptResult=" + promptResult +
+                    ", promptCategory='" + promptCategory + '\'' +
+                    ", answer='" + answer + '\'' +
+                    ", contentResult=" + contentResult +
+                    ", contentCategory='" + contentCategory + '\'' +
+                    '}';
+        }
     }
 
     public static class SafetyCheckRequest {

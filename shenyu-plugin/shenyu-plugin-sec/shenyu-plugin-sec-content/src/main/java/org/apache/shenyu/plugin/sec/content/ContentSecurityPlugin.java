@@ -10,6 +10,7 @@ import org.apache.shenyu.plugin.api.exception.ResponsiveException;
 import org.apache.shenyu.plugin.api.utils.WebFluxResultUtils;
 import org.apache.shenyu.plugin.base.utils.CacheKeyUtils;
 import org.apache.shenyu.plugin.sec.content.decotator.ContentSecurityRequestDecorator;
+import org.apache.shenyu.plugin.sec.content.decotator.ContentSecurityResponseDecorator;
 import org.apache.shenyu.plugin.sec.content.handler.ContentSecurityPluginDataHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,9 +71,10 @@ public class ContentSecurityPlugin extends AbstractShenyuPlugin {
                                     return WebFluxResultUtils.failedResult(
                                             new ResponsiveException(1400, err, exchange));
                                 }
-
+                                // post check
                                 ServerWebExchange mutated = exchange.mutate()
                                         .request(new ContentSecurityRequestDecorator(exchange, bytes))
+                                        .response(new ContentSecurityResponseDecorator(exchange, handle))
                                         .build();
                                 return chain.execute(mutated);
                             });

@@ -6,8 +6,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
 import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import org.reactivestreams.Publisher;
 
@@ -31,45 +33,56 @@ public class ContentSecurityResponseDecorator extends ServerHttpResponseDecorato
 
     @Override
     public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
-        LOG.info("ContentSecurityResponseDecorator.writeWith called!");
-        // Empty bodies and non-flux types are supported
-        if (body == null) {
-            LOG.warn("writeWith called with null body!");
-            return getDelegate().writeWith(Mono.empty());
+        String contentType = getDelegate().getHeaders().getFirst(HttpHeaders.CONTENT_TYPE);
+        if (contentType == null || !contentType.toLowerCase().contains("json")) {
+            return getDelegate().writeWith(body);
         }
+
         // Aggregate the entire response body
-        return DataBufferUtils.join(body)
-                .flatMap(dataBuffer -> {
-                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                    dataBuffer.read(bytes);
-                    DataBufferUtils.release(dataBuffer);
+        return Flux.from(body)
+                .collectList()
+                .flatMap(dataBuffers -> {
+                    int totalSize = dataBuffers.stream().mapToInt(DataBuffer::readableByteCount).sum();
+                    byte[] allBytes = new byte[totalSize];
+                    int offset = 0;
+                    for (DataBuffer buffer : dataBuffers) {
+                        int count = buffer.readableByteCount();
+                        buffer.read(allBytes, offset, count);
+                        offset += count;
+                        DataBufferUtils.release(buffer);
+                    }
+                    String bodyStr = (allBytes.length == 0) ? "" : new String(allBytes, StandardCharsets.UTF_8);
 
-                    String originalBody = new String(bytes, StandardCharsets.UTF_8);
-                    LOG.info("Original LLM response body: {}", originalBody);
+                    if (bodyStr.isEmpty()) {
+                        return getDelegate().writeWith(Mono.just(getDelegate().bufferFactory().wrap(allBytes)));
+                    }
 
-                    // Construct request detection
-                    ContentSecurityChecker.SafetyCheckRequest req = ContentSecurityChecker.SafetyCheckRequest.forContent(
-                            handle.getAccessKey(), handle.getAccessToken(), handle.getAppId(), originalBody
-                    );
+                    if (handle == null) {
+                        return getDelegate().writeWith(Mono.just(getDelegate().bufferFactory().wrap(allBytes)));
+                    }
 
-                    return ContentSecurityChecker.checkText(req, handle)
-                            .defaultIfEmpty(null)
+                    return ContentSecurityChecker
+                            .checkText(ContentSecurityChecker.SafetyCheckRequest.forContent(
+                                    handle.getAccessKey(),
+                                    handle.getAccessToken(),
+                                    handle.getAppId(),
+                                    bodyStr), handle)
+                            .onErrorResume(e -> {
+                                return Mono.empty();
+                            })
                             .flatMap(resp -> {
-                                String cat = (resp != null && resp.getData() != null) ? resp.getData().getContentCategory() : null;
-                                String toWrite;
+                                String cat = (resp != null && resp.getData() != null) ? resp.getData().getContentCategory() : "";
                                 if ("违规".equals(cat) || "疑似".equals(cat)) {
-                                    LOG.warn("检测到响应内容违规，cat={}，响应被拦截！", cat);
-                                    toWrite = String.format(
-                                            "{\"code\":1400,\"msg\":\"内容不符合规范\",\"detail\":\"检测结果：%s\"}", cat
-                                    );
+                                    String errResp = "{\"code\":1401,\"msg\":\"返回内容违规\",\"detail\":\"检测结果：" + cat + "\"}";
+                                    byte[] bytes = errResp.getBytes(StandardCharsets.UTF_8);
+                                    return getDelegate().writeWith(Mono.just(getDelegate().bufferFactory().wrap(bytes)));
                                 } else {
-                                    toWrite = originalBody;
+                                    return getDelegate().writeWith(Mono.just(getDelegate().bufferFactory().wrap(allBytes)));
                                 }
-                                byte[] outBytes = toWrite.getBytes(StandardCharsets.UTF_8);
-                                DataBuffer outBuffer = bufferFactory().wrap(outBytes);
-                                LOG.info("响应最终输出内容：{}", toWrite);
-                                return getDelegate().writeWith(Mono.just(outBuffer));
-                            });
+                            })
+                            .switchIfEmpty(getDelegate().writeWith(Mono.just(getDelegate().bufferFactory().wrap(allBytes))));
+
                 });
     }
+
 }
