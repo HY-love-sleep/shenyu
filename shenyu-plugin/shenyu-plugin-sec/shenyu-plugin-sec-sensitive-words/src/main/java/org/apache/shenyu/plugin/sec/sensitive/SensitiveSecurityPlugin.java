@@ -47,12 +47,6 @@ public class SensitiveSecurityPlugin extends AbstractShenyuPlugin {
     }
 
     @Override
-    public int getOrder() {
-        // before aiProxy and ContentSecurityPlugin
-        return PluginEnum.AI_PROXY.getCode() - 2;
-    }
-
-    @Override
     protected Mono<Void> doExecute(final ServerWebExchange exchange,
                                    final ShenyuPluginChain chain,
                                    final SelectorData selector,
@@ -123,5 +117,11 @@ public class SensitiveSecurityPlugin extends AbstractShenyuPlugin {
     @Override
     public String named() {
         return PluginEnum.SENSITIVE_SECURITY.getName();
+    }
+
+    @Override
+    public int getOrder() {
+        // before aiProxy and ContentSecurityPlugin
+        return PluginEnum.SENSITIVE_SECURITY.getCode();
     }
 }
