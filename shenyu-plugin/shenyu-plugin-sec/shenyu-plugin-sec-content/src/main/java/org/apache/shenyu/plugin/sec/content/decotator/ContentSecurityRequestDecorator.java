@@ -11,7 +11,7 @@ import reactor.core.publisher.Flux;
 import java.nio.charset.StandardCharsets;
 
 /**
- * 缓存 body 的 RequestDecorator，使得 body 可重复消费
+ * The RequestDecorator of the body is cached so that the body can be consumed repeatedly
  * @author yHong
  * @since 2025/7/9 15:55
  * @version 1.0

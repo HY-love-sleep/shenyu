@@ -18,7 +18,8 @@ import java.util.function.Supplier;
  */
 public class ContentSecurityPluginDataHandler implements PluginDataHandler {
 
-    // 缓存规则ID到ContentSecurityHandle的映射，使用ShenYu提供的通用缓存容器
+    // The mapping of the cache rule ID to the ContentSecurityHandle
+    // using the generic cache container provided by ShenYu
     public static final Supplier<CommonHandleCache<String, ContentSecurityHandle>> CACHED_HANDLE =
             new BeanHolder<>(CommonHandleCache::new);
 
@@ -37,7 +38,6 @@ public class ContentSecurityPluginDataHandler implements PluginDataHandler {
         });
     }
 
-    // todo: use plugin enum
     @Override
     public String pluginNamed() {
         return PluginEnum.CONTENT_SECURITY.getName();

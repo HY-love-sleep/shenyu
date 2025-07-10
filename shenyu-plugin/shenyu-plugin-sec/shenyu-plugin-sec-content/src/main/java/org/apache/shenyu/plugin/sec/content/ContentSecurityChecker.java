@@ -16,14 +16,14 @@ import java.util.List;
  */
 public class ContentSecurityChecker {
     private static final Logger LOG = LoggerFactory.getLogger(ContentSecurityChecker.class);
-    // 可以复用单例 WebClient
+    //  reuse a singleton WebClient
     private static final WebClient WEB_CLIENT = WebClient.builder().build();
 
     /**
-     * 调用第三方内容安全检测接口，检查给定文本的合规性。
+     * Call a third-party content security detection API to check the compliance of a given text.
      *
-     * @param req 要发送的请求体，包括 prompt 和 content
-     * @return 异步 Mono，产生 SafetyCheckResponse 检测结果
+     * @param req The body of the request to be sent, including prompt and content
+     * @return Asynchronous Mono, which produces a SafetyCheckResponse test result
      */
     public static Mono<SafetyCheckResponse> checkText(final SafetyCheckRequest req, final ContentSecurityHandle handle) {
         String endpoint = handle.getUrl();
@@ -89,7 +89,7 @@ public class ContentSecurityChecker {
     }
 
     /**
-     * 响应中 data 字段的结构
+     * The structure of the data field in the response
      */
     public static class SafetyCheckData {
         private List<RiskItem> promptResult;
@@ -164,7 +164,6 @@ public class ContentSecurityChecker {
         public SafetyCheckRequest() {
         }
 
-        // 通用构造器
         public SafetyCheckRequest(final String accessKey,
                                   final String accessToken,
                                   final String appId,
@@ -177,7 +176,7 @@ public class ContentSecurityChecker {
             this.content = content;
         }
 
-        // prompt-only 构造
+        // prompt-only
         public SafetyCheckRequest(final String accessKey,
                                   final String accessToken,
                                   final String appId,
@@ -185,7 +184,7 @@ public class ContentSecurityChecker {
             this(accessKey, accessToken, appId, prompt, null);
         }
 
-        // content-only 构造
+        // content-only
         public static SafetyCheckRequest forContent(final String accessKey,
                                                     final String accessToken,
                                                     final String appId,

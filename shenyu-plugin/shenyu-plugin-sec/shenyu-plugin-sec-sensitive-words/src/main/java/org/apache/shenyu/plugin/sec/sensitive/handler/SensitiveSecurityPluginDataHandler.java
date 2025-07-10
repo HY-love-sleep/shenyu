@@ -30,11 +30,11 @@ public class SensitiveSecurityPluginDataHandler implements PluginDataHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SensitiveSecurityPluginDataHandler.class);
 
-    /** 缓存 Key = PluginEnum.SENSITIVE_SECURITY.getName() */
+    /** cache Key = PluginEnum.SENSITIVE_SECURITY.getName() */
     public static final Supplier<CommonHandleCache<String, ReactiveRedisTemplate<String, String>>> REDIS_TEMPLATES =
             new BeanHolder<>(CommonHandleCache::new);
 
-    /** 缓存每条规则的 Handle */
+    /** Cache for each rule Handle */
     public static final Supplier<CommonHandleCache<String, SensitiveSecurityHandle>> CACHED_HANDLE =
             new BeanHolder<>(CommonHandleCache::new);
 

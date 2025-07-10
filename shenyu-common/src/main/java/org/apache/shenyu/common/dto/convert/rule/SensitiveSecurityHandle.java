@@ -8,7 +8,7 @@ package org.apache.shenyu.common.dto.convert.rule;
 public class SensitiveSecurityHandle {
 
     /**
-     * Redis 中存敏感词集合的 key。
+     * Redis holds the key of the collection of sensitive words.
      */
     private String redisKey = "shenyu:sensitive:words";
 
@@ -21,7 +21,7 @@ public class SensitiveSecurityHandle {
     }
 
     /**
-     * 提供一个默认实例，Admin-端未配置时可用。
+     * Provide a default instance that is available when the Admin-side is not configured.
      */
     public static SensitiveSecurityHandle newDefaultInstance() {
         return new SensitiveSecurityHandle();

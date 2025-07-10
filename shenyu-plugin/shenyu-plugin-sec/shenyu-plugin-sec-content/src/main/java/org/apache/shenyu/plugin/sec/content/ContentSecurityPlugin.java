@@ -48,7 +48,8 @@ public class ContentSecurityPlugin extends AbstractShenyuPlugin {
             return chain.execute(exchange);
         }
 
-        // Asynchronous check prompt
+        // Asynchronous check prompt and loop check content
+        // todo: check chunked , no join
         return DataBufferUtils.join(exchange.getRequest().getBody())
                 .flatMap(dataBuffer -> {
                     byte[] bytes = new byte[dataBuffer.readableByteCount()];

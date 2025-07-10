@@ -35,7 +35,7 @@ public class SensitiveSecurityPlugin extends AbstractShenyuPlugin {
     private static final Logger LOG = LoggerFactory.getLogger(SensitiveSecurityPlugin.class);
 
     /**
-     * 缓存 Aho-Corasick 敏感词树，key 为插件名。
+     * Cache the Aho-Corasick sensitive word tree, where key is the plug-in name.
      */
     private static final Supplier<CommonHandleCache<String, AhoCorasick>> AC_TREES =
             new BeanHolder<>(CommonHandleCache::new);
@@ -59,7 +59,7 @@ public class SensitiveSecurityPlugin extends AbstractShenyuPlugin {
         }
         String redisKey = handle.getRedisKey();
 
-        // 2) get cached ReactiveRedisTemplate
+        // get cached ReactiveRedisTemplate
         ReactiveRedisTemplate<String, String> redisTemplate =
                 SensitiveSecurityPluginDataHandler.REDIS_TEMPLATES
                         .get()
@@ -69,7 +69,7 @@ public class SensitiveSecurityPlugin extends AbstractShenyuPlugin {
             return chain.execute(exchange);
         }
 
-        // 3) get body async
+        // 3) body async
         return ServerWebExchangeUtils.rewriteRequestBody(exchange, readers, promptBody -> {
                     // use cached ac tree
                     AhoCorasick tree = AC_TREES.get().obtainHandle(PluginEnum.SENSITIVE_SECURITY.getName());
