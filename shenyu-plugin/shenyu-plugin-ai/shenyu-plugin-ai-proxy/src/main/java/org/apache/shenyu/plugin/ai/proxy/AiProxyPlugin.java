@@ -111,17 +111,7 @@ public class AiProxyPlugin extends AbstractShenyuPlugin {
         
         exchange.getAttributes().put(Constants.AI_MODEL, aiModel);
         
-        // When aiModel.invoke is called, the response body is intercepted and the CLIENT_RESPONSE_ATTR populated
-        // for content security checks, its a loop check
-        return aiModel.invoke(aiCommonConfig, exchange, chain, messageReaders)
-            .then(Mono.defer(() -> {
-                // Use rewriteResponseBody to intercept the response body content and write the attribute
-                ServerWebExchange newExchange = ServerWebExchangeUtils.rewriteResponseBody(exchange, body -> {
-                    exchange.getAttributes().put(Constants.CLIENT_RESPONSE_ATTR, body);
-                    return body;
-                });
-                return chain.execute(newExchange);
-            }));
+        return aiModel.invoke(aiCommonConfig, exchange, chain, messageReaders);
 
     }
     

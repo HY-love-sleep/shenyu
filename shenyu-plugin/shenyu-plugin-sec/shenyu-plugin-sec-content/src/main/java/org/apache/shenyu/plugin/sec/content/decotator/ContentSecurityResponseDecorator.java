@@ -14,12 +14,6 @@ import reactor.core.publisher.Mono;
 import org.reactivestreams.Publisher;
 
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
-
 /**
  * @author yHong
  * @since 2025/7/9 14:25
@@ -36,58 +30,46 @@ public class ContentSecurityResponseDecorator extends ServerHttpResponseDecorato
         this.handle = handle;
     }
 
+    /**
+     * check chunked, streaming
+     * @param body
+     * @return
+     */
     @Override
     public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
         String contentType = getDelegate().getHeaders().getFirst(HttpHeaders.CONTENT_TYPE);
-        if (contentType == null || !contentType.toLowerCase().contains("json")) {
+        if (contentType == null ||
+                (!contentType.toLowerCase().contains("json") && !contentType.toLowerCase().contains("event-stream"))) {
             return getDelegate().writeWith(body);
         }
 
-        // Aggregate the entire response body
-        return Flux.from(body)
-                .collectList()
-                .flatMap(dataBuffers -> {
-                    int totalSize = dataBuffers.stream().mapToInt(DataBuffer::readableByteCount).sum();
-                    byte[] allBytes = new byte[totalSize];
-                    int offset = 0;
-                    for (DataBuffer buffer : dataBuffers) {
-                        int count = buffer.readableByteCount();
-                        buffer.read(allBytes, offset, count);
-                        offset += count;
-                        DataBufferUtils.release(buffer);
-                    }
-                    String bodyStr = (allBytes.length == 0) ? "" : new String(allBytes, StandardCharsets.UTF_8);
+        return getDelegate().writeWith(
+                Flux.from(body)
+                        .concatMap(dataBuffer -> {
+                            // read chunk
+                            byte[] chunkBytes = new byte[dataBuffer.readableByteCount()];
+                            dataBuffer.read(chunkBytes);
+                            DataBufferUtils.release(dataBuffer);
+                            String chunk = new String(chunkBytes, StandardCharsets.UTF_8);
 
-                    if (bodyStr.isEmpty()) {
-                        return getDelegate().writeWith(Mono.just(getDelegate().bufferFactory().wrap(allBytes)));
-                    }
-
-                    if (handle == null) {
-                        return getDelegate().writeWith(Mono.just(getDelegate().bufferFactory().wrap(allBytes)));
-                    }
-
-                    return ContentSecurityChecker
-                            .checkText(ContentSecurityChecker.SafetyCheckRequest.forContent(
-                                    handle.getAccessKey(),
-                                    handle.getAccessToken(),
-                                    handle.getAppId(),
-                                    bodyStr), handle)
-                            .onErrorResume(e -> {
-                                return Mono.empty();
-                            })
-                            .flatMap(resp -> {
-                                String cat = (resp != null && resp.getData() != null) ? resp.getData().getContentCategory() : "";
-                                if ("违规".equals(cat) || "疑似".equals(cat)) {
-                                    String errResp = "{\"code\":1401,\"msg\":\"返回内容违规\",\"detail\":\"检测结果：" + cat + "\"}";
-                                    byte[] bytes = errResp.getBytes(StandardCharsets.UTF_8);
-                                    return getDelegate().writeWith(Mono.just(getDelegate().bufferFactory().wrap(bytes)));
-                                } else {
-                                    return getDelegate().writeWith(Mono.just(getDelegate().bufferFactory().wrap(allBytes)));
-                                }
-                            })
-                            .switchIfEmpty(getDelegate().writeWith(Mono.just(getDelegate().bufferFactory().wrap(allBytes))));
-
-                });
+                            // check each chunk
+                            return ContentSecurityChecker
+                                    .checkText(ContentSecurityChecker.SafetyCheckRequest.forContent(
+                                            handle.getAccessKey(), handle.getAccessToken(), handle.getAppId(), chunk
+                                    ), handle)
+                                    .flatMap(resp -> {
+                                        String cat = resp.getData() != null ? resp.getData().getContentCategory() : "";
+                                        if ("违规".equals(cat) || "疑似".equals(cat)) {
+                                            String errResp = "{\"code\":1401,\"msg\":\"返回内容违规\",\"detail\":\"检测结果：" + cat + "\"}";
+                                            byte[] errBytes = errResp.getBytes(StandardCharsets.UTF_8);
+                                            return Mono.just(getDelegate().bufferFactory().wrap(errBytes));
+                                        } else {
+                                            return Mono.just(getDelegate().bufferFactory().wrap(chunkBytes));
+                                        }
+                                    });
+                        })
+        );
     }
+
 
 }

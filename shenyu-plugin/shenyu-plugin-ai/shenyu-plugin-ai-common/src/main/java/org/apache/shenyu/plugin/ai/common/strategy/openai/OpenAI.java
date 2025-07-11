@@ -35,6 +35,7 @@ import org.springframework.http.codec.HttpMessageReader;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -50,9 +51,24 @@ public class OpenAI implements AiModel {
     public Mono<Void> invoke(final AiCommonConfig aiCommonConfig, final ServerWebExchange exchange,
                              final ShenyuPluginChain chain,
                              final List<HttpMessageReader<?>> messageReaders) {
+        HttpHeaders newHeaders = new HttpHeaders();
+        exchange.getRequest().getHeaders().forEach((key, valueList) -> {
+            newHeaders.put(key, new ArrayList<>(valueList));
+        });
+        if (!newHeaders.containsKey("Authorization")) {
+            newHeaders.add("Authorization", "Bearer " + aiCommonConfig.getApiKey());
+        }
+        if (aiCommonConfig.getStream()) {
+            newHeaders.add(HttpHeaders.CONTENT_TYPE, "text/event-stream");
+            newHeaders.add(HttpHeaders.CACHE_CONTROL, "no-cache");
+            newHeaders.add(HttpHeaders.CONNECTION, "keep-alive");
+        }
         ServerWebExchange modifiedExchange = exchange.mutate()
                 .request(originalRequest -> originalRequest
-                        .headers(httpHeaders -> convertHeader(httpHeaders, aiCommonConfig))
+                        .headers(httpHeaders ->{
+                            httpHeaders.clear();
+                            httpHeaders.putAll(newHeaders);
+                        })
                         .method(exchange.getRequest().getMethod())
                 )
                 .build();
@@ -66,7 +82,7 @@ public class OpenAI implements AiModel {
                     return Mono.error(error);
                 });
     }
-    
+
     @Override
     public Long getCompletionTokens(final String responseBody) {
         try {
@@ -91,7 +107,7 @@ public class OpenAI implements AiModel {
             httpHeaders.add("Authorization", "Bearer " + aiCommonConfig.getApiKey());
         }
         if (aiCommonConfig.getStream()) {
-            httpHeaders.add(HttpHeaders.CONTENT_TYPE, MediaType.TEXT_EVENT_STREAM_VALUE);
+            httpHeaders.set(HttpHeaders.CONTENT_TYPE, MediaType.TEXT_EVENT_STREAM_VALUE);
             httpHeaders.add(HttpHeaders.CACHE_CONTROL, "no-cache");
             httpHeaders.add(HttpHeaders.CONNECTION, "keep-alive");
         }

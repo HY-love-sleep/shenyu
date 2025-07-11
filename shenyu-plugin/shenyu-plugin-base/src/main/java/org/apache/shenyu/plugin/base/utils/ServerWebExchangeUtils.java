@@ -63,6 +63,27 @@ public class ServerWebExchangeUtils {
 
     }
 
+    public static Mono<ServerWebExchange> rewriteRequestBodyWithBytes(
+            final ServerWebExchange exchange,
+            final List<HttpMessageReader<?>> readers,
+            final Function<String, Mono<byte[]>> convert) {
+
+        ServerRequest serverRequest = ServerRequest.create(exchange, readers);
+        CachedBodyOutputMessage outputMessage = ResponseUtils.newCachedBodyOutputMessage(exchange);
+
+        return serverRequest.bodyToMono(String.class)
+                .switchIfEmpty(Mono.defer(() -> Mono.just("")))
+                .flatMap(convert)
+                .flatMap(body -> {
+                    BodyInserter<byte[], ReactiveHttpOutputMessage> bodyInserter = BodyInserters.fromValue(body);
+                    return bodyInserter.insert(outputMessage, new BodyInserterContext());
+                }).then(Mono.defer(() -> {
+                    ServerHttpRequestDecorator decorator = new RequestDecorator(exchange, outputMessage);
+                    return Mono.just(exchange.mutate().request(decorator).build());
+                })).onErrorResume(throwable -> ResponseUtils.release(outputMessage, throwable));
+    }
+
+
     /**
      * Rewrites Response Body.
      *

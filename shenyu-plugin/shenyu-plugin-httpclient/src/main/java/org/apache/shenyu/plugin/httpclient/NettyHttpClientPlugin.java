@@ -61,37 +61,57 @@ public class NettyHttpClientPlugin extends AbstractHttpClientPlugin<HttpClientRe
         ServerHttpRequest request = exchange.getRequest();
         final HttpHeaders httpHeaders = new HttpHeaders(request.getHeaders());
         this.duplicateHeaders(exchange, httpHeaders, UniqueHeaderEnum.REQ_UNIQUE_HEADER);
-        return Mono.from(httpClient.headers(headers -> {
-            httpHeaders.forEach(headers::set);
-            headers.remove(HttpHeaders.HOST);
-            Boolean preserveHost = exchange.getAttributeOrDefault(Constants.PRESERVE_HOST, Boolean.FALSE);
-            if (preserveHost) {
-                headers.add(HttpHeaders.HOST, request.getHeaders().getFirst(HttpHeaders.HOST));
-            }
-        }).request(HttpMethod.valueOf(httpMethod)).uri(uri.toASCIIString())
-                .send((req, nettyOutbound) -> nettyOutbound.send(body.map(dataBuffer -> ((NettyDataBuffer) dataBuffer).getNativeBuffer())))
+
+        return Mono.from(httpClient
+                .headers(headers -> {
+                    httpHeaders.forEach(headers::set);
+                    headers.remove(HttpHeaders.HOST);
+                    Boolean preserveHost = exchange.getAttributeOrDefault(Constants.PRESERVE_HOST, Boolean.FALSE);
+                    if (preserveHost) {
+                        headers.add(HttpHeaders.HOST, request.getHeaders().getFirst(HttpHeaders.HOST));
+                    }
+                })
+                .request(HttpMethod.valueOf(httpMethod))
+                .uri(uri.toASCIIString())
+                .send((req, nettyOutbound) ->
+                        nettyOutbound.send(
+                                body.map(dataBuffer -> ((NettyDataBuffer) dataBuffer).getNativeBuffer())
+                        )
+                )
                 .responseConnection((res, connection) -> {
                     exchange.getAttributes().put(Constants.CLIENT_RESPONSE_ATTR, res);
                     exchange.getAttributes().put(Constants.CLIENT_RESPONSE_CONN_ATTR, connection);
+
                     final ServerHttpResponse response = exchange.getResponse();
                     HttpHeaders headers = new HttpHeaders();
                     res.responseHeaders().forEach(entry -> headers.add(entry.getKey(), entry.getValue()));
                     this.duplicateHeaders(exchange, httpHeaders, UniqueHeaderEnum.RESP_UNIQUE_HEADER);
+
                     String contentTypeValue = headers.getFirst(HttpHeaders.CONTENT_TYPE);
                     if (StringUtils.isNotBlank(contentTypeValue)) {
                         exchange.getAttributes().put(Constants.ORIGINAL_RESPONSE_CONTENT_TYPE_ATTR, contentTypeValue);
                     }
+
                     HttpStatus status = HttpStatus.resolve(res.status().code());
                     if (Objects.nonNull(status)) {
                         response.setStatusCode(status);
                     } else if (response instanceof AbstractServerHttpResponse) {
                         response.setRawStatusCode(res.status().code());
                     } else {
-                        throw new IllegalStateException("Unable to set status code on response: " + res.status().code() + ", " + response.getClass());
+                        throw new IllegalStateException("Unable to set status code on response: "
+                                + res.status().code() + ", " + response.getClass());
                     }
                     response.getHeaders().putAll(headers);
-                    return Mono.just(res);
-                }));
+
+                    // add body write
+                    Flux<DataBuffer> bodyFlux = connection.inbound().receive()
+                            .map(byteBuf -> response.bufferFactory().wrap(byteBuf.nioBuffer()));
+                    return response.writeWith(bodyFlux)
+                            .then(Mono.fromRunnable(() -> {
+                                // todo: if necessary, handle the response here
+                            }));
+                })
+        );
     }
 
 
