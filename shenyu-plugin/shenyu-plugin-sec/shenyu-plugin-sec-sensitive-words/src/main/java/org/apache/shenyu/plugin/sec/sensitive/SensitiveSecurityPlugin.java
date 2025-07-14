@@ -69,7 +69,7 @@ public class SensitiveSecurityPlugin extends AbstractShenyuPlugin {
             return chain.execute(exchange);
         }
 
-        // 3) body async
+        // body async
         return ServerWebExchangeUtils.rewriteRequestBody(exchange, readers, promptBody -> {
                     // use cached ac tree
                     AhoCorasick tree = AC_TREES.get().obtainHandle(PluginEnum.SENSITIVE_SECURITY.getName());

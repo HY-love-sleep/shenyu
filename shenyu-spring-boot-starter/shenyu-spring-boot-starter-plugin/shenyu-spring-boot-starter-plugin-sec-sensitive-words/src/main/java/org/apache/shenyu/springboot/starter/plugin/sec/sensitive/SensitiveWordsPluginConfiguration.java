@@ -25,8 +25,9 @@ public class SensitiveWordsPluginConfiguration {
     }
 
     /**
-     * 订阅并缓存：①插件级的 RedisConfigProperties → ReactiveRedisTemplate
-     *              ②规则级的 redisKey → SensitiveSecurityHandle
+     * Subscribe and cache：
+     * 1、plugin's RedisConfigProperties → ReactiveRedisTemplate
+     * 2、rule's redisKey → SensitiveSecurityHandle
      */
     @Bean
     public PluginDataHandler sensitiveSecurityPluginDataHandler() {

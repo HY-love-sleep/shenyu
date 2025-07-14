@@ -71,5 +71,4 @@ public class ContentSecurityResponseDecorator extends ServerHttpResponseDecorato
         );
     }
 
-
 }
