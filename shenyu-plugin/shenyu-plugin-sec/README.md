@@ -375,3 +375,57 @@ shenhu-admin的前端插件菜单需要通过sql脚本进行配置， 涉及到�
 
 
 
+
+
+## 5. 流式chunk检测流程
+
+- 主流程会不停缓存解析出的完整SSE行到sseLinesBuffer和原始字节流rawSseBytesBuffer。
+- 每达到CHUNK_BATCH_SIZE就聚合检测（调用detectAndOutput），检测通过就原样write回前端。
+- 尾部不足一批的内容在流结束时做最后一次检测输出。
+- 检测内容为空（如只包含[DONE]）时直接原样write，不再检测。
+- 每一批的输出都是合规时原样流回，违规时返回错误JSON。
+
+```mermaid
+flowchart TD
+    A0(收到 LLM 响应流 DataBuffer) --> A1{判断 Content-Type 是否\n为 json 或 event-stream}
+    A1 -- 否 --> A2(直接 writeWith 原始 body)
+    A1 -- 是 --> B0(进入流处理主循环)
+    
+    subgraph 流处理主循环
+        B1(DataBuffer 解码为 String，追加到 sseLineBuffer)
+        B1 --> B2(循环查找\n, 提取完整SSE行)
+        B2 --> B3{有完整行？}
+        B3 -- 否 --> B8(继续缓存，等待下一个 DataBuffer)
+        B3 -- 是 --> B4(每行追加到 sseLinesBuffer，\n\n转为原始字节进 rawSseBytesBuffer)
+        B4 --> B5{sseLinesBuffer.size >= CHUNK_BATCH_SIZE?}
+        B5 -- 否 --> B8
+        B5 -- 是 --> B6(取前 N 行为 toDetectLines / toOutputBytes)
+        B6 --> B7(调用 detectAndOutput 聚合内容检测+输出)
+        B7 --> B8(处理剩余行)
+    end
+
+    B8(下一个 DataBuffer 到来，或进入尾部处理) --> C0{流结束？}
+    C0 -- 否 --> B1
+    C0 -- 是 --> C1{还有剩余行?}
+    C1 -- 否 --> Z0(完成写出)
+    C1 -- 是 --> C2(调用 detectAndOutput 检测剩余内容+输出)
+    C2 --> Z0
+
+    %% detectAndOutput 子流程
+    subgraph detectAndOutput
+        D1(聚合 toDetectLines 提取所有content，拼 batchContent)
+        D2{batchContent.isEmpty?}
+        D1 --> D2
+        D2 -- 是 --> D3(原样输出 toOutputBytes SSE字节)
+        D2 -- 否 --> D4(调用三方内容安全API)
+        D4 --> D5{检测结果}
+        D5 -- 违规/疑似 --> D6(输出违规错误JSON到客户端)
+        D5 -- 合规 --> D3
+    end
+
+    style B0 fill:#f9f,stroke:#333,stroke-width:1px
+    style detectAndOutput fill:#ddf,stroke:#333,stroke-width:1px
+    style A1 fill:#fdd,stroke:#333,stroke-width:1px
+
+```
+
