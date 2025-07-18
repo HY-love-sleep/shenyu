@@ -108,10 +108,8 @@ public class AiTokenLimiterPlugin extends AbstractShenyuPlugin {
                 .flatMap(allowed -> {
                     if (!allowed) {
                         exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
-                        final Consumer<HttpStatusCode> consumer = exchange.getAttribute(Constants.METRICS_RATE_LIMITER);
-                        Optional.ofNullable(consumer).ifPresent(c -> c.accept(exchange.getResponse().getStatusCode()));
-                        Object error = ShenyuResultWrap.error(exchange, ShenyuResultEnum.RUN_OUT_OF_TOKENS);
-                        return WebFluxResultUtils.result(exchange, error);
+                        DataBuffer buffer = exchange.getResponse().bufferFactory().wrap("Too many requests".getBytes(StandardCharsets.UTF_8));
+                        return exchange.getResponse().writeWith(Mono.just(buffer));
                     }
                     // record tokens usage
                     ServerWebExchange mutatedExchange = exchange.mutate()
