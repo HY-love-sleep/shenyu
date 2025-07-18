@@ -26,6 +26,7 @@ import java.util.List;
  */
 public class ContentSecurityResponseDecorator extends ServerHttpResponseDecorator {
     // each 10 chunks will be checked, but dont hinder client sse output
+    // todo: CHUNK_BATCH_SIZE'value should be defined in front handler
     private final static Integer CHUNK_BATCH_SIZE  = 10;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Logger LOG = LoggerFactory.getLogger(ContentSecurityResponseDecorator.class);
