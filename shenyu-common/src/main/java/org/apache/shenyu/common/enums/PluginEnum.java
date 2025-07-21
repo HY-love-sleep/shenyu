@@ -294,6 +294,8 @@ public enum PluginEnum {
 
     CONTENT_SECURITY(198, 0, "ContentSecurityPlugin"),
 
+    CONTENT_MARK(0, 0, "ContentMarkPlugin"),
+
     SENSITIVE_SECURITY(197, 0, "SensitiveWord");
     
     /**
