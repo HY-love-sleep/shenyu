@@ -7,6 +7,11 @@ package org.apache.shenyu.common.dto.convert.rule;
  */
 public class ContentMarkHandle {
     private String url;
+    // docking watermark interface, although I don't know what the point of adding these parameters is...
+    private String modelName;
+    private String applicationName;
+    private String serviceProvider;
+    private String serviceUser;
     private Integer timeoutMs;
     // obligate
     private String accessKey;
@@ -44,13 +49,35 @@ public class ContentMarkHandle {
         this.timeoutMs = timeoutMs;
     }
 
-    @Override
-    public String toString() {
-        return "ContentMarkHandle{" +
-                "url='" + url + '\'' +
-                ", timeoutMs=" + timeoutMs +
-                ", accessKey='" + accessKey + '\'' +
-                ", accessToken='" + accessToken + '\'' +
-                '}';
+    public String getApplicationName() {
+        return applicationName;
+    }
+
+    public void setApplicationName(String applicationName) {
+        this.applicationName = applicationName;
+    }
+
+    public String getModelName() {
+        return modelName;
+    }
+
+    public void setModelName(String modelName) {
+        this.modelName = modelName;
+    }
+
+    public String getServiceProvider() {
+        return serviceProvider;
+    }
+
+    public void setServiceProvider(String serviceProvider) {
+        this.serviceProvider = serviceProvider;
+    }
+
+    public String getServiceUser() {
+        return serviceUser;
+    }
+
+    public void setServiceUser(String serviceUser) {
+        this.serviceUser = serviceUser;
     }
 }

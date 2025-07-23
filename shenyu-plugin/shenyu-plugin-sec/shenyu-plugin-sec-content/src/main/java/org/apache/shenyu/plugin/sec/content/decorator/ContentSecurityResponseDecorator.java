@@ -1,4 +1,4 @@
-package org.apache.shenyu.plugin.sec.content.decotator;
+package org.apache.shenyu.plugin.sec.content.decorator;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,6 +23,7 @@ import java.util.List;
  * @author yHong
  * @since 2025/7/9 14:25
  * @version 1.0
+ * // todo: Extracted into a generic decorator
  */
 public class ContentSecurityResponseDecorator extends ServerHttpResponseDecorator {
     // each 10 chunks will be checked, but dont hinder client sse output
@@ -187,7 +188,7 @@ public class ContentSecurityResponseDecorator extends ServerHttpResponseDecorato
             }
             JsonNode root = OBJECT_MAPPER.readTree(json);
             JsonNode choices = root.get("choices");
-            if (choices != null && choices.isArray() && choices.size() > 0) {
+            if (choices != null && choices.isArray() && !choices.isEmpty()) {
                 JsonNode delta = choices.get(0).get("delta");
                 if (delta != null && delta.has("content")) {
                     return delta.get("content").asText();

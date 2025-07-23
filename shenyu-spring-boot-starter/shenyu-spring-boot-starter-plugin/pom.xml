@@ -80,5 +80,6 @@
         <module>shenyu-spring-boot-starter-plugin-ai-request-transformer</module>
         <module>shenyu-spring-boot-starter-plugin-sec-content-security</module>
         <module>shenyu-spring-boot-starter-plugin-sec-sensitive-words</module>
+        <module>shenyu-spring-boot-starter-plugin-sec-watermark</module>
     </modules>
 </project>

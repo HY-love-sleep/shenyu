@@ -1,4 +1,4 @@
-package org.apache.shenyu.plugin.sec.content.decotator;
+package org.apache.shenyu.plugin.sec.content.decorator;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
