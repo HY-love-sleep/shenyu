@@ -21,6 +21,7 @@ public class WaterMarker {
         LOG.info("Calling watermark API:{}, contentLen={}", endPoint, request.getContent().length());
 
         return WEB_CLIENT.post()
+                .uri(endPoint)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(request)
                 .retrieve()
