@@ -7,6 +7,8 @@ import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
+
 /**
  * @author yHong
  * @version 1.0
@@ -26,6 +28,7 @@ public class WaterMarker {
                 .bodyValue(request)
                 .retrieve()
                 .bodyToMono(TextMarkResponse.class)
+                .timeout(Duration.ofSeconds(handle.getTimeoutMs()))
                 .doOnNext(resp -> {
                     LOG.info("watermark result:{}", resp);
                     Data data = resp.getData();
@@ -33,7 +36,19 @@ public class WaterMarker {
                         LOG.info("waterMarkDarkInfo:{}", data.getWaterMarkDarkInfo());
                     }
                 })
-                .doOnError(e -> LOG.error("call watermark API failed:{}", e.getMessage()));
+                .doOnError(e -> LOG.error("call watermark API failed:{}", e.getMessage()))
+                .onErrorResume(e -> {
+                    LOG.warn("Watermark API error or timeout, fallback to original content. Error: {}", e.getMessage());
+                    TextMarkResponse fallback = new TextMarkResponse();
+                    fallback.setCode(-1);
+                    fallback.setMessage("Watermark API error, content not marked: " + e.getMessage());
+                    fallback.setSuccess(false);
+                    Data data = new Data();
+                    data.setContent(request.getContent());
+                    data.setWaterMarkDarkInfo(null);
+                    fallback.setData(data);
+                    return Mono.just(fallback);
+                });
     }
 
     /**

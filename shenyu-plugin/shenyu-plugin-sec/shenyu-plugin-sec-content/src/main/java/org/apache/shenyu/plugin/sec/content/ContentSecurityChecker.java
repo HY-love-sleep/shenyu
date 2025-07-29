@@ -7,6 +7,7 @@ import reactor.core.publisher.Mono;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.List;
 
 /**
@@ -37,6 +38,7 @@ public class ContentSecurityChecker {
                 .bodyValue(req)
                 .retrieve()
                 .bodyToMono(SafetyCheckResponse.class)
+                .timeout(Duration.ofSeconds(3))
                 .doOnNext(resp -> {
                     LOG.info("zkrj res:{}", resp);
                     SafetyCheckData d = resp.getData();
@@ -45,7 +47,17 @@ public class ContentSecurityChecker {
                                 d.getPromptCategory(), d.getContentCategory());
                     }
                 })
-                .doOnError(e -> LOG.error("safety-check error: {}", e.getMessage()));
+                .doOnError(e -> LOG.error("safety-check error: {}", e.getMessage()))
+                .onErrorResume(e -> {
+                    LOG.warn("Content security API error or timeout, fallback!");
+                    SafetyCheckResponse resp = new SafetyCheckResponse();
+                    resp.setCode("1500");
+                    resp.setMsg("内容安全检测服务不可用: " + e.getMessage());
+                    SafetyCheckData data = new SafetyCheckData();
+                    data.setPromptCategory("接口异常");
+                    resp.setData(data);
+                    return Mono.just(resp);
+                });
 
     }
 
