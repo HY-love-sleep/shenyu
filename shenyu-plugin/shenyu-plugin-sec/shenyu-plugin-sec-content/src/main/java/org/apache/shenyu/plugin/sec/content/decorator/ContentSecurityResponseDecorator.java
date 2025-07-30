@@ -3,6 +3,7 @@ package org.apache.shenyu.plugin.sec.content.decorator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.shenyu.common.dto.convert.rule.ContentSecurityHandle;
+import org.apache.shenyu.plugin.base.decorator.GenericResponseDecorator;
 import org.apache.shenyu.plugin.sec.content.ContentSecurityChecker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +19,7 @@ import org.reactivestreams.Publisher;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiFunction;
 
 /**
  * @author yHong
@@ -25,164 +27,70 @@ import java.util.List;
  * @version 1.0
  * // todo: Extracted into a generic decorator
  */
-public class ContentSecurityResponseDecorator extends ServerHttpResponseDecorator {
-    // each 10 chunks will be checked, but dont hinder client sse output
-    // todo: CHUNK_BATCH_SIZE'value should be defined in front handler
-    private final static Integer CHUNK_BATCH_SIZE  = 10;
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
     private static final Logger LOG = LoggerFactory.getLogger(ContentSecurityResponseDecorator.class);
-    private final ServerWebExchange exchange;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private final ContentSecurityHandle handle;
 
     public ContentSecurityResponseDecorator(ServerWebExchange exchange, ContentSecurityHandle handle) {
-        super(exchange.getResponse());
-        this.exchange = exchange;
+        super(
+                exchange.getResponse(),
+                exchange,
+                10,
+                buildProcessAndOutput(handle, exchange)
+        );
         this.handle = handle;
     }
 
-    /**
-     * check chunked, streaming
-     * @param body
-     * @return
-     */
-    @Override
-    public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
-        if (Boolean.TRUE.equals(exchange.getAttribute("SEC_ERROR"))) {
-            // passthrough
-            return getDelegate().writeWith(body);
-        }
-        String contentType = getDelegate().getHeaders().getFirst(HttpHeaders.CONTENT_TYPE);
-        if (contentType == null ||
-                (!contentType.toLowerCase().contains("json") && !contentType.toLowerCase().contains("event-stream"))) {
-            return getDelegate().writeWith(body);
-        }
-
-        // Row splicing buffer ( across buffers)
-        final StringBuilder sseLineBuffer = new StringBuilder();
-
-        final List<String> sseLinesBuffer = new ArrayList<>();
-        final List<byte[]> rawSseBytesBuffer = new ArrayList<>();
-
-        Flux<DataBuffer> processed = Flux.from(body)
-                .concatMap(dataBuffer -> {
-                    // DataBuffer -> String
-                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                    dataBuffer.read(bytes);
-                    String str = new String(bytes, StandardCharsets.UTF_8);
-                    DataBufferUtils.release(dataBuffer);
-
-                    sseLineBuffer.append(str);
-
-                    List<String> fullLines = new ArrayList<>();
-                    int idx;
-                    while ((idx = indexOfLineBreak(sseLineBuffer)) != -1) {
-                        String line = sseLineBuffer.substring(0, idx);
-                        if (idx > 0 && sseLineBuffer.charAt(idx - 1) == '\r') {
-                            line = sseLineBuffer.substring(0, idx - 1);
+    private static BiFunction<List<String>, List<byte[]>, Flux<DataBuffer>> buildProcessAndOutput(
+            ContentSecurityHandle handle, ServerWebExchange exchange) {
+        return (sseLines, rawSseBytes) -> {
+            StringBuilder contentBuilder = new StringBuilder();
+            for (String line : sseLines) {
+                String chunkStr = line.trim();
+                if (chunkStr.startsWith("data:")) {
+                    String json = chunkStr.substring(5).trim();
+                    if ("[DONE]".equals(json)) {
+                        continue;
+                    } else {
+                        String content = extractContentFromOpenAIChunk(chunkStr);
+                        if (content != null) {
+                            contentBuilder.append(content);
                         }
-                        sseLineBuffer.delete(0, idx + 1);
-                        if (!line.trim().isEmpty()) {
-                            fullLines.add(line);
-                        }
-                    }
-
-                    // cache all full SSE lines and raw bytes
-                    for (String line : fullLines) {
-                        sseLinesBuffer.add(line);
-                        rawSseBytesBuffer.add((line + "\n\n").getBytes(StandardCharsets.UTF_8));
-                    }
-
-                    // each batch of N lines is tested
-                    List<String> toDetectLines = new ArrayList<>();
-                    List<byte[]> toOutputBytes = new ArrayList<>();
-                    Flux<DataBuffer> out = Flux.empty();
-
-                    while (sseLinesBuffer.size() >= CHUNK_BATCH_SIZE) {
-                        for (int i = 0; i < CHUNK_BATCH_SIZE; i++) {
-                            toDetectLines.add(sseLinesBuffer.remove(0));
-                            toOutputBytes.add(rawSseBytesBuffer.remove(0));
-                        }
-                        out = out.concatWith(detectAndOutput(toDetectLines, toOutputBytes));
-                        toDetectLines = new ArrayList<>();
-                        toOutputBytes = new ArrayList<>();
-                    }
-
-                    return out;
-                })
-                // end Processing: There are still scenes left that have not reached the N line
-                .concatWith(Flux.defer(() -> {
-                    if (!sseLinesBuffer.isEmpty()) {
-                        List<String> toDetectLines = new ArrayList<>(sseLinesBuffer);
-                        List<byte[]> toOutputBytes = new ArrayList<>(rawSseBytesBuffer);
-                        sseLinesBuffer.clear();
-                        rawSseBytesBuffer.clear();
-                        return detectAndOutput(toDetectLines, toOutputBytes);
-                    }
-                    return Flux.empty();
-                }));
-
-        return getDelegate().writeWith(processed);
-    }
-
-    // Row splitting: Returns the position of the first\n or \r\n
-    private int indexOfLineBreak(StringBuilder sb) {
-        for (int i = 0; i < sb.length(); i++) {
-            if (sb.charAt(i) == '\n') {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private Flux<DataBuffer> detectAndOutput(List<String> sseLines, List<byte[]> rawSseBytes) {
-        StringBuilder contentBuilder = new StringBuilder();
-        for (String line : sseLines) {
-            String chunkStr = line.trim();
-            if (chunkStr.startsWith("data:")) {
-                String json = chunkStr.substring(5).trim();
-                if ("[DONE]".equals(json)) {
-                    continue;
-                } else {
-                    String content = extractContentFromOpenAIChunk(chunkStr);
-                    if (content != null) {
-                        contentBuilder.append(content);
                     }
                 }
             }
-        }
-        String batchContent = contentBuilder.toString();
+            String batchContent = contentBuilder.toString();
 
-        if (batchContent.isEmpty()) {
-            LOG.info("No actual content to check, output all {} raw sse bytes", rawSseBytes.size());
-            return Flux.fromIterable(rawSseBytes)
-                    .map(bytes -> getDelegate().bufferFactory().wrap(bytes));
-        }
+            if (batchContent.isEmpty()) {
+                LOG.info("No actual content to check, output all {} raw sse bytes", rawSseBytes.size());
+                return Flux.fromIterable(rawSseBytes)
+                        .map(bytes -> exchange.getResponse().bufferFactory().wrap(bytes));
+            }
 
-        // todo: 拼接上次message的内容送审【600个字】
-        return ContentSecurityChecker
-                .checkText(
-                        ContentSecurityChecker.SafetyCheckRequest.forContent(
-                                handle.getAccessKey(), handle.getAccessToken(), handle.getAppId(), batchContent
-                        ),
-                        handle)
-                .flatMapMany(resp -> {
-                    String cat = resp.getData() != null ? resp.getData().getContentCategory() : "";
-                    if ("违规".equals(cat) || "疑似".equals(cat)) {
-                        String errResp = "{\"code\":1401,\"msg\":\"返回内容违规\",\"detail\":\"检测结果：" + cat + "\"}";
-                        byte[] errBytes = errResp.getBytes(StandardCharsets.UTF_8);
-                        return Flux.just(getDelegate().bufferFactory().wrap(errBytes));
-                    } else {
-                        LOG.info("Security check passed, output {} sse chunks", rawSseBytes.size());
-                        return Flux.fromIterable(rawSseBytes)
-                                .map(bytes -> getDelegate().bufferFactory().wrap(bytes));
-                    }
-                })
-                .doOnError(e -> LOG.error("Error in detectAndOutput", e));
+            return ContentSecurityChecker
+                    .checkText(
+                            ContentSecurityChecker.SafetyCheckRequest.forContent(
+                                    handle.getAccessKey(), handle.getAccessToken(), handle.getAppId(), batchContent
+                            ),
+                            handle)
+                    .flatMapMany(resp -> {
+                        String cat = resp.getData() != null ? resp.getData().getContentCategory() : "";
+                        if ("违规".equals(cat) || "疑似".equals(cat)) {
+                            String errResp = "{\"code\":1401,\"msg\":\"返回内容违规\",\"detail\":\"检测结果：" + cat + "\"}";
+                            byte[] errBytes = errResp.getBytes(StandardCharsets.UTF_8);
+                            return Flux.just(exchange.getResponse().bufferFactory().wrap(errBytes));
+                        } else {
+                            LOG.info("Security check passed, output {} sse chunks", rawSseBytes.size());
+                            return Flux.fromIterable(rawSseBytes)
+                                    .map(bytes -> exchange.getResponse().bufferFactory().wrap(bytes));
+                        }
+                    })
+                    .doOnError(e -> LOG.error("Error in detectAndOutput", e));
+        };
     }
 
-
-    // get content
-    private String extractContentFromOpenAIChunk(String chunkJson) {
+    private static String extractContentFromOpenAIChunk(String chunkJson) {
         try {
             String json = chunkJson.trim();
             if (json.startsWith("data:")) {
@@ -204,6 +112,4 @@ public class ContentSecurityResponseDecorator extends ServerHttpResponseDecorato
         }
         return null;
     }
-
-
 }
