@@ -7,6 +7,7 @@ import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -25,17 +26,24 @@ public class GenericResponseDecorator extends ServerHttpResponseDecorator {
 
     private final int chunkBatchSize;
     private final BiFunction<List<String>, List<byte[]>, Flux<DataBuffer>> processAndOutput;
+    private final ServerWebExchange exchange;
 
     public GenericResponseDecorator(ServerHttpResponse delegate,
+                                    ServerWebExchange exchange,
                                     int chunkBatchSize,
                                     BiFunction<List<String>, List<byte[]>, Flux<DataBuffer>> processAndOutput) {
         super(delegate);
+        this.exchange = exchange;
         this.chunkBatchSize = chunkBatchSize;
         this.processAndOutput = processAndOutput;
     }
 
     @Override
     public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
+        if (Boolean.TRUE.equals(exchange.getAttribute("SEC_ERROR"))) {
+            // passthrough
+            return getDelegate().writeWith(body);
+        }
         String contentType = getDelegate().getHeaders().getFirst(HttpHeaders.CONTENT_TYPE);
         if (contentType == null ||
                 (!contentType.toLowerCase().contains("json") && !contentType.toLowerCase().contains("event-stream"))) {

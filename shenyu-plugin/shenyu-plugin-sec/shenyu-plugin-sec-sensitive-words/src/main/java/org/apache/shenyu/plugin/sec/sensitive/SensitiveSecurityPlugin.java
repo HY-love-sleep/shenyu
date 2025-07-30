@@ -108,6 +108,7 @@ public class SensitiveSecurityPlugin extends AbstractShenyuPlugin {
                 // Unified exception handling
                 .onErrorResume(e -> {
                     if (e instanceof ResponsiveException) {
+                        exchange.getAttributes().put("SEC_ERROR", true);
                         return WebFluxResultUtils.failedResult((ResponsiveException) e);
                     }
                     return Mono.error(e);

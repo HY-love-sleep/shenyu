@@ -47,6 +47,10 @@ public class ContentSecurityResponseDecorator extends ServerHttpResponseDecorato
      */
     @Override
     public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
+        if (Boolean.TRUE.equals(exchange.getAttribute("SEC_ERROR"))) {
+            // passthrough
+            return getDelegate().writeWith(body);
+        }
         String contentType = getDelegate().getHeaders().getFirst(HttpHeaders.CONTENT_TYPE);
         if (contentType == null ||
                 (!contentType.toLowerCase().contains("json") && !contentType.toLowerCase().contains("event-stream"))) {
@@ -154,6 +158,7 @@ public class ContentSecurityResponseDecorator extends ServerHttpResponseDecorato
                     .map(bytes -> getDelegate().bufferFactory().wrap(bytes));
         }
 
+        // todo: 拼接上次message的内容送审【600个字】
         return ContentSecurityChecker
                 .checkText(
                         ContentSecurityChecker.SafetyCheckRequest.forContent(

@@ -68,6 +68,7 @@ public class ContentSecurityPlugin extends AbstractShenyuPlugin {
                                 if ("违规".equals(cat) || "疑似".equals(cat)) {
                                     String err = String.format(
                                             "{\"code\":1400,\"msg\":\"内容不符合规范\",\"detail\":\"检测结果：%s\"}", cat);
+                                    exchange.getAttributes().put("SEC_ERROR", true);
                                     return WebFluxResultUtils.failedResult(
                                             new ResponsiveException(1400, err, exchange));
                                 }

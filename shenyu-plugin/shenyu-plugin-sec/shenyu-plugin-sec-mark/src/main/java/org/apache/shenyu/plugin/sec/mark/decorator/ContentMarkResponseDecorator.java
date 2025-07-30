@@ -26,6 +26,7 @@ public class ContentMarkResponseDecorator extends GenericResponseDecorator {
     public ContentMarkResponseDecorator(ServerWebExchange exchange, ContentMarkHandle handle) {
         super(
                 exchange.getResponse(),
+                exchange,
                 10,
                 buildMarkAndOutput(handle, exchange.getResponse())
         );
