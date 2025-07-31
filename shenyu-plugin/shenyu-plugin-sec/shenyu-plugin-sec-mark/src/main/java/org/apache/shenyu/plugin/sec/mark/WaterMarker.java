@@ -1,5 +1,11 @@
 package org.apache.shenyu.plugin.sec.mark;
 
+import com.netflix.hystrix.HystrixCommand;
+import com.netflix.hystrix.HystrixCommandGroupKey;
+import com.netflix.hystrix.HystrixCommandKey;
+import com.netflix.hystrix.HystrixCommandProperties;
+import com.netflix.hystrix.HystrixThreadPoolKey;
+import com.netflix.hystrix.HystrixThreadPoolProperties;
 import org.apache.shenyu.common.dto.convert.rule.ContentMarkHandle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,36 +25,79 @@ public class WaterMarker {
     private static final WebClient WEB_CLIENT = WebClient.builder().build();
 
     public static Mono<TextMarkResponse> addMarkForText(final TextMarkRequest request, final ContentMarkHandle handle) {
-        String endPoint = handle.getUrl();
-        LOG.info("Calling watermark API:{}, contentLen={}", endPoint, request.getContent().length());
+        return Mono.fromCallable(() -> new AddMarkHystrixCommand(request, handle).execute());
+    }
 
+    // HystrixCommand
+    static class AddMarkHystrixCommand extends HystrixCommand<TextMarkResponse> {
+        private final TextMarkRequest request;
+        private final ContentMarkHandle handle;
+
+        AddMarkHystrixCommand(TextMarkRequest request, ContentMarkHandle handle) {
+            super(Setter
+                    .withGroupKey(HystrixCommandGroupKey.Factory.asKey("WaterMark"))
+                    .andCommandKey(HystrixCommandKey.Factory.asKey("AddMarkForText"))
+                    .andThreadPoolKey(HystrixThreadPoolKey.Factory.asKey("WaterMarkPool"))
+                    .andThreadPoolPropertiesDefaults(
+                            HystrixThreadPoolProperties.Setter()
+                                    .withCoreSize(10)
+                                    .withMaximumSize(30)
+                                    .withMaxQueueSize(100)
+                                    .withAllowMaximumSizeToDivergeFromCoreSize(true)
+                    )
+                    .andCommandPropertiesDefaults(
+                            HystrixCommandProperties.Setter()
+                                    .withExecutionTimeoutInMilliseconds(5000)
+                                    .withCircuitBreakerEnabled(true)
+                                    .withCircuitBreakerRequestVolumeThreshold(10)
+                                    .withCircuitBreakerErrorThresholdPercentage(50)
+                                    .withCircuitBreakerSleepWindowInMilliseconds(10000)
+                                    .withExecutionIsolationStrategy(
+                                            HystrixCommandProperties.ExecutionIsolationStrategy.THREAD
+                                    )
+                    )
+            );
+            this.request = request;
+            this.handle = handle;
+        }
+
+        @Override
+        protected TextMarkResponse run() {
+            try {
+                return addMarkForTextInternal(request, handle)
+                        .block(Duration.ofMillis(4900));
+            } catch (Exception e) {
+                LOG.error("Watermark run error: {}", e.getMessage(), e);
+                throw e;
+            }
+        }
+
+        @Override
+        protected TextMarkResponse getFallback() {
+            LOG.warn("Watermark fallback by Hystrix.");
+            TextMarkResponse fallback = new TextMarkResponse();
+            fallback.setCode(-1);
+            fallback.setMessage("Watermark API error, fallback by Hystrix");
+            fallback.setSuccess(false);
+            Data data = new Data();
+            data.setContent(request.getContent());
+            data.setWaterMarkDarkInfo(null);
+            fallback.setData(data);
+            return fallback;
+        }
+    }
+
+    // true call
+    private static Mono<TextMarkResponse> addMarkForTextInternal(final TextMarkRequest request, final ContentMarkHandle handle) {
+        String endpoint = handle.getUrl();
+        LOG.info("Calling watermark API [{}]", endpoint);
+        String endPoint = handle.getUrl();
         return WEB_CLIENT.post()
                 .uri(endPoint)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(request)
                 .retrieve()
-                .bodyToMono(TextMarkResponse.class)
-                .timeout(Duration.ofSeconds(handle.getTimeoutMs()))
-                .doOnNext(resp -> {
-                    LOG.info("watermark result:{}", resp);
-                    Data data = resp.getData();
-                    if (data != null) {
-                        LOG.info("waterMarkDarkInfo:{}", data.getWaterMarkDarkInfo());
-                    }
-                })
-                .doOnError(e -> LOG.error("call watermark API failed:{}", e.getMessage()))
-                .onErrorResume(e -> {
-                    LOG.warn("Watermark API error or timeout, fallback to original content. Error: {}", e.getMessage());
-                    TextMarkResponse fallback = new TextMarkResponse();
-                    fallback.setCode(-1);
-                    fallback.setMessage("Watermark API error, content not marked: " + e.getMessage());
-                    fallback.setSuccess(false);
-                    Data data = new Data();
-                    data.setContent(request.getContent());
-                    data.setWaterMarkDarkInfo(null);
-                    fallback.setData(data);
-                    return Mono.just(fallback);
-                });
+                .bodyToMono(TextMarkResponse.class);
     }
 
     /**

@@ -1,5 +1,11 @@
 package org.apache.shenyu.plugin.sec.content;
 
+import com.netflix.hystrix.HystrixCommand;
+import com.netflix.hystrix.HystrixCommandGroupKey;
+import com.netflix.hystrix.HystrixCommandKey;
+import com.netflix.hystrix.HystrixCommandProperties;
+import com.netflix.hystrix.HystrixThreadPoolKey;
+import com.netflix.hystrix.HystrixThreadPoolProperties;
 import org.apache.shenyu.common.dto.convert.rule.ContentSecurityHandle;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.http.MediaType;
@@ -27,38 +33,77 @@ public class ContentSecurityChecker {
      * @return Asynchronous Mono, which produces a SafetyCheckResponse test result
      */
     public static Mono<SafetyCheckResponse> checkText(final SafetyCheckRequest req, final ContentSecurityHandle handle) {
+        return Mono.fromCallable(() -> new ContentSecHystrixCommand(req, handle).execute());
+    }
+
+    // HystrixCommand
+    static class ContentSecHystrixCommand extends HystrixCommand<SafetyCheckResponse> {
+        private final SafetyCheckRequest req;
+        private final ContentSecurityHandle handle;
+
+        ContentSecHystrixCommand(SafetyCheckRequest req, ContentSecurityHandle handle) {
+            super(Setter
+                    .withGroupKey(HystrixCommandGroupKey.Factory.asKey("ContentSecurity"))
+                    .andCommandKey(HystrixCommandKey.Factory.asKey("CheckText"))
+                    .andThreadPoolKey(HystrixThreadPoolKey.Factory.asKey("ContentSecurityPool"))
+                    .andThreadPoolPropertiesDefaults(
+                            HystrixThreadPoolProperties.Setter()
+                                    .withCoreSize(10)        // 线程池核心线程数
+                                    .withMaximumSize(30)     // 最大线程数
+                                    .withMaxQueueSize(100)   // 队列长度
+                                    .withAllowMaximumSizeToDivergeFromCoreSize(true)
+                    )
+                    .andCommandPropertiesDefaults(
+                            HystrixCommandProperties.Setter()
+                                    .withExecutionTimeoutInMilliseconds(5000)           // 超时 5s
+                                    .withCircuitBreakerEnabled(true)                     // 熔断开关
+                                    .withCircuitBreakerRequestVolumeThreshold(10)        // 滑窗内请求数≥10才统计
+                                    .withCircuitBreakerErrorThresholdPercentage(50)      // 50%错误率开启熔断
+                                    .withCircuitBreakerSleepWindowInMilliseconds(10000)   // 熔断后10秒自动半开
+                                    .withExecutionIsolationStrategy(
+                                            HystrixCommandProperties.ExecutionIsolationStrategy.THREAD
+                                    )
+                    )
+            );
+            this.req = req;
+            this.handle = handle;
+        }
+
+        @Override
+        protected SafetyCheckResponse run() {
+            // run in Hystrix threadPool
+            try {
+                return checkTextInternal(req, handle)
+                        .block(Duration.ofMillis(4900));
+            } catch (Exception e) {
+                LOG.error("Content security check error: {}", e.getMessage(), e);
+                throw e;
+            }
+        }
+
+        @Override
+        protected SafetyCheckResponse getFallback() {
+            LOG.warn("Content security fallback by Hystrix.");
+            SafetyCheckResponse resp = new SafetyCheckResponse();
+            resp.setCode("1500");
+            resp.setMsg("内容安全检测服务不可用(fallback by Hystrix)");
+            SafetyCheckData data = new SafetyCheckData();
+            data.setPromptCategory("接口异常");
+            resp.setData(data);
+            return resp;
+        }
+    }
+
+    // true call
+    private static Mono<SafetyCheckResponse> checkTextInternal(final SafetyCheckRequest req, final ContentSecurityHandle handle) {
         String endpoint = handle.getUrl();
-        LOG.info("Calling content safety API [{}], promptLen={} contentLen={}",
-                endpoint,
-                req.getPrompt() != null ? req.getPrompt().length() : 0,
-                req.getContent() != null ? req.getContent().length() : 0);
+        LOG.info("Calling content safety API [{}]", endpoint);
         return WEB_CLIENT.post()
                 .uri(endpoint)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(req)
                 .retrieve()
-                .bodyToMono(SafetyCheckResponse.class)
-                .timeout(Duration.ofSeconds(3))
-                .doOnNext(resp -> {
-                    LOG.info("zkrj res:{}", resp);
-                    SafetyCheckData d = resp.getData();
-                    if (d != null) {
-                        LOG.info("=> promptCategory={} contentCategory={}",
-                                d.getPromptCategory(), d.getContentCategory());
-                    }
-                })
-                .doOnError(e -> LOG.error("safety-check error: {}", e.getMessage()))
-                .onErrorResume(e -> {
-                    LOG.warn("Content security API error or timeout, fallback!");
-                    SafetyCheckResponse resp = new SafetyCheckResponse();
-                    resp.setCode("1500");
-                    resp.setMsg("内容安全检测服务不可用: " + e.getMessage());
-                    SafetyCheckData data = new SafetyCheckData();
-                    data.setPromptCategory("接口异常");
-                    resp.setData(data);
-                    return Mono.just(resp);
-                });
-
+                .bodyToMono(SafetyCheckResponse.class);
     }
 
     public static class SafetyCheckResponse {
