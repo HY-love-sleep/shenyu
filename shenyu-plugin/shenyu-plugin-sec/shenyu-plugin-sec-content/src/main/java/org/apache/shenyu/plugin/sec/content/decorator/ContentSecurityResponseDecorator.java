@@ -30,11 +30,11 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
     private static final Logger LOG = LoggerFactory.getLogger(ContentSecurityResponseDecorator.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     
-    // 累积式检测配置
-    private static final int BATCH_SIZE = 10; // 每批处理的token数量
-    private static final int WINDOW_SIZE = 50; // 累积内容阈值
+    // append state
+    private static final int BATCH_SIZE = 20; // The number of tokens processed per batch
+    private static final int WINDOW_SIZE = 200; // Cumulative content threshold
     
-    // 全局状态管理器
+    // global State Manager
     private static final ConcurrentHashMap<String, DecoratorState> STATE_MAP = new ConcurrentHashMap<>();
     
     private final ContentSecurityHandle handle;
@@ -50,7 +50,7 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
         this.handle = handle;
         this.stateKey = exchange.getRequest().getId();
         
-        // 初始化状态
+        // init state
         STATE_MAP.put(stateKey, new DecoratorState(exchange, WINDOW_SIZE, BATCH_SIZE));
     }
 
@@ -66,7 +66,7 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
                         .map(bytes -> exchange.getResponse().bufferFactory().wrap(bytes));
             }
             
-            // 如果已经被拦截，直接返回错误响应
+            // if it has already been intercepted, return the error response directly.
             if (state.isBlocked.get()) {
                 exchange.getAttributes().put("SEC_ERROR", true);
                 String errResp = "{\"code\":1401,\"msg\":\"返回内容违规\",\"detail\":\"检测结果：违规\"}";
@@ -74,16 +74,14 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
                 return Flux.just(exchange.getResponse().bufferFactory().wrap(errBytes));
             }
 
-            // 检查是否为空批次（可能是重复处理）
             if (sseLines.isEmpty()) {
                 return Flux.fromIterable(rawSseBytes)
                         .map(bytes -> exchange.getResponse().bufferFactory().wrap(bytes));
             }
 
-            // 增加处理计数器
             int currentCount = state.processCounter.incrementAndGet();
 
-            // 提取当前批次的内容
+            // get current batch content
             StringBuilder currentBatchContent = new StringBuilder();
             int validLines = 0;
             for (String line : sseLines) {
@@ -104,19 +102,17 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
 
             String batchContent = currentBatchContent.toString();
             
-            // 将当前批次内容添加到累积缓冲区
+            // add batch content to buffer
             state.slidingWindowBuffer.addContent(batchContent);
             
-            // 如果累积缓冲区还没有达到检测阈值，直接输出
+            // if the cumulative buffer has not yet reached the detection threshold, output directly.
             if (!state.slidingWindowBuffer.shouldCheck()) {
                 return Flux.fromIterable(rawSseBytes)
                         .map(bytes -> exchange.getResponse().bufferFactory().wrap(bytes));
             }
 
-            // 获取累积缓冲区中的内容进行检测
             String accumulatedContent = state.slidingWindowBuffer.getWindowContent();
-            
-            // 打印送审内容
+
             LOG.info("送审内容: {}", accumulatedContent);
             
             return ContentSecurityChecker
@@ -175,7 +171,7 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
     }
 
     /**
-     * 装饰器状态类
+     * Decorator Status Class
      */
     private static class DecoratorState {
         private final ServerWebExchange exchange;
@@ -191,7 +187,7 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
     }
 
     /**
-     * 累积式内容缓冲区
+     * Accumulative content buffer
      */
     private static class AccumulativeContentBuffer {
         private final int maxSize;
@@ -203,7 +199,7 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
         }
 
         /**
-         * 添加内容到缓冲区
+         * Add content to the buffer
          */
         public void addContent(String content) {
             if (content == null || content.isEmpty()) {
@@ -223,14 +219,14 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
         }
 
         /**
-         * 判断是否应该进行检测
+         * Determine whether a detection should be performed
          */
         public boolean shouldCheck() {
             return contentBuffer.length() >= maxSize;
         }
 
         /**
-         * 获取当前累积内容
+         * Retrieve current cumulative content
          */
         public String getWindowContent() {
             String content = contentBuffer.toString();
@@ -238,7 +234,7 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
         }
 
         /**
-         * 获取当前缓冲区大小
+         * Get the current buffer size
          */
         public int getCurrentSize() {
             return contentBuffer.length();
