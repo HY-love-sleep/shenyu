@@ -40,18 +40,18 @@ public class WaterMarker {
                     .andThreadPoolKey(HystrixThreadPoolKey.Factory.asKey("WaterMarkPool"))
                     .andThreadPoolPropertiesDefaults(
                             HystrixThreadPoolProperties.Setter()
-                                    .withCoreSize(10)
-                                    .withMaximumSize(30)
-                                    .withMaxQueueSize(100)
+                                    .withCoreSize(20)
+                                    .withMaximumSize(50)
+                                    .withMaxQueueSize(200)
                                     .withAllowMaximumSizeToDivergeFromCoreSize(true)
                     )
                     .andCommandPropertiesDefaults(
                             HystrixCommandProperties.Setter()
-                                    .withExecutionTimeoutInMilliseconds(5000)
+                                    .withExecutionTimeoutInMilliseconds(8000)
                                     .withCircuitBreakerEnabled(true)
-                                    .withCircuitBreakerRequestVolumeThreshold(10)
+                                    .withCircuitBreakerRequestVolumeThreshold(20)
                                     .withCircuitBreakerErrorThresholdPercentage(50)
-                                    .withCircuitBreakerSleepWindowInMilliseconds(10000)
+                                    .withCircuitBreakerSleepWindowInMilliseconds(15000)
                                     .withExecutionIsolationStrategy(
                                             HystrixCommandProperties.ExecutionIsolationStrategy.THREAD
                                     )
@@ -65,7 +65,7 @@ public class WaterMarker {
         protected TextMarkResponse run() {
             try {
                 return addMarkForTextInternal(request, handle)
-                        .block(Duration.ofMillis(4900));
+                        .block(Duration.ofMillis(4000));
             } catch (Exception e) {
                 LOG.error("Watermark run error: {}", e.getMessage(), e);
                 throw e;

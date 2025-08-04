@@ -274,6 +274,12 @@ public class AiTokenLimiterPlugin extends AbstractShenyuPlugin {
                                         continue;
                                     }
                                     try {
+
+                                        if (!isValidJson(payload)) {
+                                            LOG.debug("Skipping incomplete JSON payload: {}", payload);
+                                            continue;
+                                        }
+                                        
                                         JsonNode node = MAPPER.readTree(payload);
                                         JsonNode usage = node.get(Constants.USAGE);
                                         if (usage != null && usage.has(Constants.COMPLETION_TOKENS)) {
@@ -282,7 +288,7 @@ public class AiTokenLimiterPlugin extends AbstractShenyuPlugin {
                                             streamingUsageRecorded.set(true);
                                         }
                                     } catch (Exception e) {
-                                        LOG.error("parse ai resp error", e);
+                                        LOG.debug("Failed to parse AI response payload: {}", payload, e);
                                     }
                                 }
                                 writer.write(ByteBuffer.wrap(processedBytes));
@@ -312,6 +318,48 @@ public class AiTokenLimiterPlugin extends AbstractShenyuPlugin {
                 last = Long.parseLong(m.group(1));
             }
             return last;
+        }
+
+        /**
+         * Verify that the JSON string is complete
+         */
+        private boolean isValidJson(String json) {
+            if (json == null || json.trim().isEmpty()) {
+                return false;
+            }
+
+            String trimmed = json.trim();
+            if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+                return false;
+            }
+
+            int braceCount = 0;
+            boolean inString = false;
+            char escapeChar = '\\';
+            
+            for (int i = 0; i < trimmed.length(); i++) {
+                char c = trimmed.charAt(i);
+                
+                if (c == escapeChar) {
+                    i++;
+                    continue;
+                }
+                
+                if (c == '"') {
+                    inString = !inString;
+                } else if (!inString) {
+                    if (c == '{') {
+                        braceCount++;
+                    } else if (c == '}') {
+                        braceCount--;
+                        if (braceCount < 0) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            
+            return braceCount == 0 && !inString;
         }
 
         private int skipGzipHeader(final byte[] b) {
