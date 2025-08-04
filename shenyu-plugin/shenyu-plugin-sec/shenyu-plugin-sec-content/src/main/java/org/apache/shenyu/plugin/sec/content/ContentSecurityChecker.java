@@ -48,18 +48,18 @@ public class ContentSecurityChecker {
                     .andThreadPoolKey(HystrixThreadPoolKey.Factory.asKey("ContentSecurityPool"))
                     .andThreadPoolPropertiesDefaults(
                             HystrixThreadPoolProperties.Setter()
-                                    .withCoreSize(10)        // 线程池核心线程数
-                                    .withMaximumSize(30)     // 最大线程数
-                                    .withMaxQueueSize(100)   // 队列长度
+                                    .withCoreSize(10)
+                                    .withMaximumSize(30)
+                                    .withMaxQueueSize(100)
                                     .withAllowMaximumSizeToDivergeFromCoreSize(true)
                     )
                     .andCommandPropertiesDefaults(
                             HystrixCommandProperties.Setter()
-                                    .withExecutionTimeoutInMilliseconds(5000)           // 超时 5s
-                                    .withCircuitBreakerEnabled(true)                     // 熔断开关
-                                    .withCircuitBreakerRequestVolumeThreshold(10)        // 滑窗内请求数≥10才统计
-                                    .withCircuitBreakerErrorThresholdPercentage(50)      // 50%错误率开启熔断
-                                    .withCircuitBreakerSleepWindowInMilliseconds(10000)   // 熔断后10秒自动半开
+                                    .withExecutionTimeoutInMilliseconds(5000)
+                                    .withCircuitBreakerEnabled(true)
+                                    .withCircuitBreakerRequestVolumeThreshold(10)
+                                    .withCircuitBreakerErrorThresholdPercentage(50)
+                                    .withCircuitBreakerSleepWindowInMilliseconds(10000)
                                     .withExecutionIsolationStrategy(
                                             HystrixCommandProperties.ExecutionIsolationStrategy.THREAD
                                     )
@@ -72,13 +72,12 @@ public class ContentSecurityChecker {
         @Override
         protected SafetyCheckResponse run() {
             // run in Hystrix threadPool
-            try {
-                return checkTextInternal(req, handle)
-                        .block(Duration.ofMillis(4900));
-            } catch (Exception e) {
-                LOG.error("Content security check error: {}", e.getMessage(), e);
-                throw e;
+            SafetyCheckResponse resp = checkTextInternal(req, handle)
+                    .block(Duration.ofMillis(4500));
+            if (resp == null || !"200".equals(resp.getCode())) {
+                throw new RuntimeException("三方接口业务失败，code=" + (resp == null ? "null" : resp.getCode()));
             }
+            return resp;
         }
 
         @Override
