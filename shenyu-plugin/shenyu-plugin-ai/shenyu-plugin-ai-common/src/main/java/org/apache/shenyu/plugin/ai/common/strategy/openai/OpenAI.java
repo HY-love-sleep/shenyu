@@ -60,7 +60,8 @@ public class OpenAI implements AiModel {
             newHeaders.add("Authorization", "Bearer " + aiCommonConfig.getApiKey());
         }
         if (aiCommonConfig.getStream()) {
-//            newHeaders.add(HttpHeaders.CONTENT_TYPE, "text/event-stream");
+            // Note: openAI's stream is in header, but mass's stream is in body
+            // newHeaders.add(HttpHeaders.CONTENT_TYPE, "text/event-stream");
             newHeaders.add(HttpHeaders.CACHE_CONTROL, "no-cache");
             newHeaders.add(HttpHeaders.CONNECTION, "keep-alive");
         }
