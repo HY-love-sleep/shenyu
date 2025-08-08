@@ -14,6 +14,19 @@ public class ContentSecurityConfig {
     private String appId;
     private String url;
 
+    // hystrix thread pool
+    private Integer hystrixThreadPoolCoreSize;
+    private Integer hystrixThreadPoolMaxSize;
+    private Integer hystrixThreadPoolQueueCapacity;
+    private Boolean allowMaximumSizeToDivergeFromCoreSize;
+    // hystrix command
+    private Integer timeoutInMilliseconds;
+    private Boolean enabled;
+    private Integer statisticalWindow;
+    private Integer breakerRequestVolumeThreshold;
+    private Integer breakerErrorThresholdPercentage;
+    private Integer breakerSleepWindowInMilliseconds;
+
     public String getAccessKey() {
         return accessKey;
     }
@@ -38,30 +51,103 @@ public class ContentSecurityConfig {
     public void setUrl(final String url) {
         this.url = url;
     }
-
-    @Override
-    public boolean equals(final Object o) {
-        if (this == o) return true;
-        if (!(o instanceof ContentSecurityConfig)) return false;
-        ContentSecurityConfig that = (ContentSecurityConfig) o;
-        return Objects.equals(accessKey, that.accessKey) &&
-                Objects.equals(accessToken, that.accessToken) &&
-                Objects.equals(appId, that.appId) &&
-                Objects.equals(url, that.url);
+    public Integer getHystrixThreadPoolQueueCapacity() {
+        return hystrixThreadPoolQueueCapacity;
     }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(accessKey, accessToken, appId, url);
+    public void setHystrixThreadPoolQueueCapacity(Integer hystrixThreadPoolQueueCapacity) {
+        this.hystrixThreadPoolQueueCapacity = hystrixThreadPoolQueueCapacity;
+    }
+
+    public Integer getHystrixThreadPoolCoreSize() {
+        return hystrixThreadPoolCoreSize;
+    }
+
+    public void setHystrixThreadPoolCoreSize(Integer hystrixThreadPoolCoreSize) {
+        this.hystrixThreadPoolCoreSize = hystrixThreadPoolCoreSize;
+    }
+
+    public Integer getHystrixThreadPoolMaxSize() {
+        return hystrixThreadPoolMaxSize;
+    }
+
+    public void setHystrixThreadPoolMaxSize(Integer hystrixThreadPoolMaxSize) {
+        this.hystrixThreadPoolMaxSize = hystrixThreadPoolMaxSize;
+    }
+
+    public Boolean getAllowMaximumSizeToDivergeFromCoreSize() {
+        return allowMaximumSizeToDivergeFromCoreSize;
+    }
+
+    public void setAllowMaximumSizeToDivergeFromCoreSize(Boolean allowMaximumSizeToDivergeFromCoreSize) {
+        this.allowMaximumSizeToDivergeFromCoreSize = allowMaximumSizeToDivergeFromCoreSize;
+    }
+
+    public Integer getTimeoutInMilliseconds() {
+        return timeoutInMilliseconds;
+    }
+
+    public void setTimeoutInMilliseconds(Integer timeoutInMilliseconds) {
+        this.timeoutInMilliseconds = timeoutInMilliseconds;
+    }
+
+    public Boolean getEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(Boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    public Integer getStatisticalWindow() {
+        return statisticalWindow;
+    }
+
+    public void setStatisticalWindow(Integer statisticalWindow) {
+        this.statisticalWindow = statisticalWindow;
+    }
+
+    public Integer getBreakerRequestVolumeThreshold() {
+        return breakerRequestVolumeThreshold;
+    }
+
+    public void setBreakerRequestVolumeThreshold(Integer breakerRequestVolumeThreshold) {
+        this.breakerRequestVolumeThreshold = breakerRequestVolumeThreshold;
+    }
+
+    public Integer getBreakerErrorThresholdPercentage() {
+        return breakerErrorThresholdPercentage;
+    }
+
+    public void setBreakerErrorThresholdPercentage(Integer breakerErrorThresholdPercentage) {
+        this.breakerErrorThresholdPercentage = breakerErrorThresholdPercentage;
+    }
+
+    public Integer getBreakerSleepWindowInMilliseconds() {
+        return breakerSleepWindowInMilliseconds;
+    }
+
+    public void setBreakerSleepWindowInMilliseconds(Integer breakerSleepWindowInMilliseconds) {
+        this.breakerSleepWindowInMilliseconds = breakerSleepWindowInMilliseconds;
     }
 
     @Override
     public String toString() {
-        return "ContentSecurityPluginConfig{" +
+        return "ContentSecurityConfig{" +
                 "accessKey='" + accessKey + '\'' +
-                ", accessToken='***'" +
+                ", accessToken='" + accessToken + '\'' +
                 ", appId='" + appId + '\'' +
                 ", url='" + url + '\'' +
+                ", hystrixThreadPoolCoreSize=" + hystrixThreadPoolCoreSize +
+                ", hystrixThreadPoolMaxSize=" + hystrixThreadPoolMaxSize +
+                ", hystrixThreadPoolQueueCapacity=" + hystrixThreadPoolQueueCapacity +
+                ", allowMaximumSizeToDivergeFromCoreSize=" + allowMaximumSizeToDivergeFromCoreSize +
+                ", timeoutInMilliseconds=" + timeoutInMilliseconds +
+                ", enabled=" + enabled +
+                ", statisticalWindow=" + statisticalWindow +
+                ", breakerRequestVolumeThreshold=" + breakerRequestVolumeThreshold +
+                ", breakerErrorThresholdPercentage=" + breakerErrorThresholdPercentage +
+                ", breakerSleepWindowInMilliseconds=" + breakerSleepWindowInMilliseconds +
                 '}';
     }
 }

@@ -14,6 +14,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
+import java.util.Optional;
 
 /**
  * @author yHong
@@ -40,18 +41,19 @@ public class WaterMarker {
                     .andThreadPoolKey(HystrixThreadPoolKey.Factory.asKey("WaterMarkPool"))
                     .andThreadPoolPropertiesDefaults(
                             HystrixThreadPoolProperties.Setter()
-                                    .withCoreSize(20)
-                                    .withMaximumSize(50)
-                                    .withMaxQueueSize(200)
+                                    .withCoreSize(Optional.ofNullable(handle.getHystrixThreadPoolCoreSize()).orElse(20))
+                                    .withMaximumSize(Optional.ofNullable(handle.getHystrixThreadPoolMaxSize()).orElse(50))
+                                    .withMaxQueueSize(Optional.ofNullable(handle.getHystrixThreadPoolQueueCapacity()).orElse(200))
                                     .withAllowMaximumSizeToDivergeFromCoreSize(true)
                     )
                     .andCommandPropertiesDefaults(
                             HystrixCommandProperties.Setter()
-                                    .withExecutionTimeoutInMilliseconds(8000)
-                                    .withCircuitBreakerEnabled(true)
-                                    .withCircuitBreakerRequestVolumeThreshold(20)
-                                    .withCircuitBreakerErrorThresholdPercentage(50)
-                                    .withCircuitBreakerSleepWindowInMilliseconds(15000)
+                                    .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
+                                    .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(8000) )
+                                    .withCircuitBreakerEnabled(Optional.ofNullable(handle.getEnabled()).orElse(Boolean.TRUE))
+                                    .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(20))
+                                    .withCircuitBreakerErrorThresholdPercentage(Optional.ofNullable(handle.getBreakerErrorThresholdPercentage()).orElse(50))
+                                    .withCircuitBreakerSleepWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
                                     .withExecutionIsolationStrategy(
                                             HystrixCommandProperties.ExecutionIsolationStrategy.THREAD
                                     )
@@ -65,7 +67,7 @@ public class WaterMarker {
         protected TextMarkResponse run() {
             try {
                 return addMarkForTextInternal(request, handle)
-                        .block(Duration.ofMillis(4000));
+                        .block(Duration.ofMillis(Optional.of(handle.getTimeoutInMilliseconds() - 1000).orElse(4000)));
             } catch (Exception e) {
                 LOG.error("Watermark run error: {}", e.getMessage(), e);
                 throw e;

@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * @author yHong
@@ -48,18 +49,19 @@ public class ContentSecurityChecker {
                     .andThreadPoolKey(HystrixThreadPoolKey.Factory.asKey("ContentSecurityPool"))
                     .andThreadPoolPropertiesDefaults(
                             HystrixThreadPoolProperties.Setter()
-                                    .withCoreSize(10)
-                                    .withMaximumSize(30)
-                                    .withMaxQueueSize(100)
-                                    .withAllowMaximumSizeToDivergeFromCoreSize(true)
+                                    .withCoreSize(Optional.ofNullable(handle.getHystrixThreadPoolCoreSize()).orElse(10))
+                                    .withMaximumSize(Optional.ofNullable(handle.getHystrixThreadPoolMaxSize()).orElse(30))
+                                    .withMaxQueueSize(Optional.ofNullable(handle.getHystrixThreadPoolQueueCapacity()).orElse(100))
+                                    .withAllowMaximumSizeToDivergeFromCoreSize(Optional.ofNullable(handle.getAllowMaximumSizeToDivergeFromCoreSize()).orElse(Boolean.TRUE))
                     )
                     .andCommandPropertiesDefaults(
                             HystrixCommandProperties.Setter()
-                                    .withExecutionTimeoutInMilliseconds(5000)
-                                    .withCircuitBreakerEnabled(true)
-                                    .withCircuitBreakerRequestVolumeThreshold(10)
-                                    .withCircuitBreakerErrorThresholdPercentage(50)
-                                    .withCircuitBreakerSleepWindowInMilliseconds(10000)
+                                    .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
+                                    .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(5000) )
+                                    .withCircuitBreakerEnabled(Optional.ofNullable(handle.getEnabled()).orElse(Boolean.TRUE))
+                                    .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(10))
+                                    .withCircuitBreakerErrorThresholdPercentage(Optional.ofNullable(handle.getBreakerErrorThresholdPercentage()).orElse(50))
+                                    .withCircuitBreakerSleepWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
                                     .withExecutionIsolationStrategy(
                                             HystrixCommandProperties.ExecutionIsolationStrategy.THREAD
                                     )
@@ -73,7 +75,7 @@ public class ContentSecurityChecker {
         protected SafetyCheckResponse run() {
             // run in Hystrix threadPool
             SafetyCheckResponse resp = checkTextInternal(req, handle)
-                    .block(Duration.ofMillis(4500));
+                    .block(Duration.ofMillis(Optional.of(handle.getTimeoutInMilliseconds() - 500).orElse(4500)));
             if (resp == null || !"200".equals(resp.getCode())) {
                 throw new RuntimeException("三方接口业务失败，code=" + (resp == null ? "null" : resp.getCode()));
             }
