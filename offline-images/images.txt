@@ -1,0 +1,22 @@
+# Docker镜像列表
+# 使用以下命令加载镜像:
+# docker load -i <镜像文件名>
+
+amazoncorretto:17.0.11-alpine3.19
+alpine:latest
+
+# 应用镜像（x86架构，适用于Linux服务器）
+shenyu-admin:latest-x86
+shenyu-bootstrap:latest-x86
+
+# 应用镜像（当前架构）
+shenyu-admin:latest
+shenyu-bootstrap:latest
+
+# 加载命令:
+# docker load -i amazoncorretto-17-alpine.tar
+# docker load -i alpine.tar
+# docker load -i shenyu-admin-x86.tar
+# docker load -i shenyu-bootstrap-x86.tar
+# docker load -i shenyu-admin.tar
+# docker load -i shenyu-bootstrap.tar

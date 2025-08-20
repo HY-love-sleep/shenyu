@@ -18,7 +18,7 @@ FROM alpine AS prepare
 
 ARG APP_NAME
 
-ENV LOCAL_PATH /opt/shenyu-bootstrap
+ENV LOCAL_PATH=/opt/shenyu-bootstrap
 
 ADD target/${APP_NAME}.tar.gz /opt
 RUN mv /opt/${APP_NAME} ${LOCAL_PATH}
@@ -27,8 +27,8 @@ FROM amazoncorretto:17.0.11-alpine3.19
 
 RUN apk --no-cache add wget curl
 
-ENV LOCAL_PATH /opt/shenyu-bootstrap
-ENV BOOT_JVM ""
+ENV LOCAL_PATH=/opt/shenyu-bootstrap
+ENV BOOT_JVM=""
 
 COPY --from=prepare ${LOCAL_PATH} ${LOCAL_PATH}
 COPY docker/logback.xml ${LOCAL_PATH}/conf/logback.xml
