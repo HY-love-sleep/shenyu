@@ -8,11 +8,14 @@ import com.netflix.hystrix.HystrixThreadPoolKey;
 import com.netflix.hystrix.HystrixThreadPoolProperties;
 import org.apache.shenyu.common.dto.convert.rule.ContentSecurityHandle;
 import org.apache.shenyu.plugin.sec.content.ContentSecurityResult;
+import org.apache.shenyu.common.utils.GsonUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.http.MediaType;
 import reactor.core.publisher.Mono;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 import java.time.Duration;
 import java.util.List;
@@ -27,6 +30,10 @@ import java.util.Optional;
 public class ContentSecurityCheckerSm implements ContentSecurityChecker {
     private static final Logger LOG = LoggerFactory.getLogger(ContentSecurityCheckerSm.class);
     private static final WebClient WEB_CLIENT = WebClient.builder().build();
+    
+    // 配置Gson忽略null字段
+    private static final Gson GSON = new GsonBuilder()
+            .create();
 
     /**
      * 调用数美内容安全检测API检查文本合规性
@@ -76,18 +83,26 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
                 response == null ? "响应为空" : response.getMessage());
         }
 
-        if (response.getFinalResult() == null) {
-            return ContentSecurityResult.error("shumei", "数美响应finalResult为空", "1500", "finalResult为空");
+        // 根据数美接口文档，使用riskLevel字段判断内容安全性
+        String riskLevel = response.getRiskLevel();
+        if (riskLevel == null) {
+            return ContentSecurityResult.error("shumei", "数美响应riskLevel为空", "1500", "riskLevel为空");
         }
 
-        if (response.getFinalResult() == 1) {
+        // 根据数美接口返回示例：
+        // - "REJECT" 表示内容有风险，需要拒绝
+        // - "PASS" 表示内容正常，可以通过
+        if ("REJECT".equalsIgnoreCase(riskLevel)) {
             // 存在风险
-            String riskLevel = response.getRiskLevel() != null ? response.getRiskLevel() : "UNKNOWN";
             String riskDescription = response.getRiskDescription() != null ? response.getRiskDescription() : "未知风险";
             return ContentSecurityResult.failed("shumei", riskLevel, riskDescription, response);
-        } else {
+        } else if ("PASS".equalsIgnoreCase(riskLevel)) {
             // 无风险
             return ContentSecurityResult.passed("shumei", response);
+        } else {
+            // 其他情况，可能是REVIEW等状态，暂时按有风险处理
+            String riskDescription = response.getRiskDescription() != null ? response.getRiskDescription() : "需要人工审核";
+            return ContentSecurityResult.failed("shumei", riskLevel, riskDescription, response);
         }
     }
 
@@ -113,12 +128,14 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
                                     .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
                                     .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(5000))
                                     .withCircuitBreakerEnabled(Optional.ofNullable(handle.getEnabled()).orElse(Boolean.TRUE))
-                                    .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(10))
-                                    .withCircuitBreakerErrorThresholdPercentage(Optional.ofNullable(handle.getBreakerErrorThresholdPercentage()).orElse(50))
+                                    .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(20)) // 提高阈值，避免过早熔断
+                                    .withCircuitBreakerErrorThresholdPercentage(Optional.ofNullable(handle.getBreakerErrorThresholdPercentage()).orElse(80)) // 提高错误率阈值
                                     .withCircuitBreakerSleepWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
                                     .withExecutionIsolationStrategy(
                                             HystrixCommandProperties.ExecutionIsolationStrategy.THREAD
                                     )
+                                    .withFallbackEnabled(true) // 启用fallback
+                                    .withRequestLogEnabled(true) // 启用请求日志，便于调试
                     )
             );
             this.req = req;
@@ -127,18 +144,40 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
 
         @Override
         protected SmTextCheckResponse run() {
-            // 在Hystrix线程池中运行
-            SmTextCheckResponse resp = checkTextInternal(req, handle)
-                    .block(Duration.ofMillis(Optional.of(handle.getTimeoutInMilliseconds() - 500).orElse(4500)));
-            if (resp == null || resp.getCode() != 1100) {
-                throw new RuntimeException("数美接口业务失败，code=" + (resp == null ? "null" : resp.getCode()));
+            try {
+                // 在Hystrix线程池中运行
+                // 设置合理的超时时间，避免过短导致超时
+                long timeout = Math.max(1000, Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(5000) - 1000);
+                SmTextCheckResponse resp = checkTextInternal(req, handle)
+                        .block(Duration.ofMillis(timeout));
+                
+                // 只要响应不为null就认为网络调用成功，业务逻辑在convertToResult中处理
+                if (resp == null) {
+                    throw new RuntimeException("数美接口返回空响应");
+                }
+                return resp;
+            } catch (Exception e) {
+                LOG.error("Shumei API call failed", e);
+                throw new RuntimeException("数美接口调用失败: " + e.getMessage(), e);
             }
-            return resp;
         }
 
         @Override
         protected SmTextCheckResponse getFallback() {
-            LOG.warn("Content security fallback by Hystrix.");
+            LOG.warn("Content security fallback triggered by Hystrix. Command: {}, Group: {}, ThreadPool: {}", 
+                    getCommandKey().name(), getCommandGroup().name(), getThreadPoolKey().name());
+            
+            // 记录导致fallback的原因
+            if (isResponseTimedOut()) {
+                LOG.warn("Fallback reason: Response timed out");
+            } else if (isFailedExecution()) {
+                LOG.warn("Fallback reason: Execution failed", getFailedExecutionException());
+            } else if (isResponseRejected()) {
+                LOG.warn("Fallback reason: Response rejected");
+            } else if (isCircuitBreakerOpen()) {
+                LOG.warn("Fallback reason: Circuit breaker is open");
+            }
+            
             SmTextCheckResponse resp = new SmTextCheckResponse();
             resp.setCode(1500);
             resp.setMessage("内容安全检测服务不可用(fallback by Hystrix)");
@@ -150,12 +189,27 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
     private static Mono<SmTextCheckResponse> checkTextInternal(final SmTextCheckRequest req, final ContentSecurityHandle handle) {
         String endpoint = handle.getUrl();
         LOG.info("Calling Shumei content safety API [{}]", endpoint);
+        
+        // 使用Gson手动序列化，确保null字段不被包含
+        String requestBody = GSON.toJson(req);
+        LOG.debug("Shumei API request: {}", requestBody);
+        
         return WEB_CLIENT.post()
                 .uri(endpoint)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(req)
+                .bodyValue(requestBody)  // 使用序列化后的字符串
                 .retrieve()
-                .bodyToMono(SmTextCheckResponse.class);
+                .bodyToMono(String.class)  // 先获取为字符串
+                .map(responseBody -> {
+                    try {
+                        LOG.info("Shumei API response: {}", responseBody);
+                        // 使用Gson手动解析JSON
+                        return GsonUtils.getInstance().fromJson(responseBody, SmTextCheckResponse.class);
+                    } catch (Exception e) {
+                        LOG.error("Failed to parse Shumei API response: {}", responseBody, e);
+                        throw new RuntimeException("Failed to parse Shumei API response: " + e.getMessage(), e);
+                    }
+                });
     }
 
     /**

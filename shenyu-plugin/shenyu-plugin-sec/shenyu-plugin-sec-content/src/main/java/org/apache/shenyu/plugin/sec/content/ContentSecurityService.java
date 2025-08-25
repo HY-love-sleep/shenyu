@@ -24,7 +24,7 @@ public class ContentSecurityService {
     
     // 数美检测器默认值常量
     private static final String DEFAULT_TOKEN_ID_PREFIX = "default_token_";
-    private static final String DEFAULT_IP = "127.0.0.1";
+    private static final String DEFAULT_IP = "118.89.214.89";
     private static final String DEFAULT_DEVICE_ID = "default_device_id";
     private static final String DEFAULT_NICKNAME = "yuanjing-mass";
     private static final String DEFAULT_TOPIC = "default_topic";
@@ -82,6 +82,7 @@ public class ContentSecurityService {
             // 创建SmTextCheckData，设置默认值, 不需要前端配置
             ContentSecurityCheckerSm.SmTextCheckData data = new ContentSecurityCheckerSm.SmTextCheckData();
             data.setText(text);
+            // 不设置relateText，让它保持未初始化状态，避免null值问题
             data.setTokenId(DEFAULT_TOKEN_ID_PREFIX + System.currentTimeMillis());
             data.setIp(DEFAULT_IP);
             data.setDeviceId(DEFAULT_DEVICE_ID);
