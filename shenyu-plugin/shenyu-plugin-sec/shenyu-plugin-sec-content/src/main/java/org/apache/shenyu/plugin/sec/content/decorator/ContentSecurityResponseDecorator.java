@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.shenyu.common.dto.convert.rule.ContentSecurityHandle;
 import org.apache.shenyu.plugin.base.decorator.GenericResponseDecorator;
 import org.apache.shenyu.plugin.sec.content.ContentSecurityService;
-import org.apache.shenyu.plugin.sec.content.ContentSecurityResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -31,8 +30,8 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     
     // append state
-    private static final int BATCH_SIZE = 20; // The number of tokens processed per batch
-    private static final int WINDOW_SIZE = 200; // Cumulative content threshold
+    private static final int BATCH_SIZE = 20;
+    private static final int WINDOW_SIZE = 100;
     
     // global State Manager
     private static final ConcurrentHashMap<String, DecoratorState> STATE_MAP = new ConcurrentHashMap<>();
@@ -51,6 +50,9 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
         this.handle = handle;
         this.stateKey = exchange.getRequest().getId();
         this.contentSecurityService = contentSecurityService;
+
+        LOG.info("ContentSecurityResponseDecorator 初始化 - 请求ID: {}, 厂商: {}, 批次大小: {}, 检测阈值: {}", 
+                stateKey, handle.getVendor(), BATCH_SIZE, WINDOW_SIZE);
         
         // init state
         STATE_MAP.put(stateKey, new DecoratorState(exchange, WINDOW_SIZE, BATCH_SIZE));
@@ -106,19 +108,41 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
             
             // add batch content to buffer
             state.slidingWindowBuffer.addContent(batchContent);
+
+            LOG.info("批次处理 - 请求ID: {}, 批次: {}, 当前批次内容长度: {}, 累积内容长度: {}, 是否达到检测阈值: {}", 
+                    stateKey, currentCount, batchContent.length(), 
+                    state.slidingWindowBuffer.getCurrentSize(), 
+                    state.slidingWindowBuffer.shouldCheck());
+
+            // 判断是否需要检测：达到阈值 或 强制检测条件
+            boolean shouldCheck = state.slidingWindowBuffer.shouldCheck();
             
-            // if the cumulative buffer has not yet reached the detection threshold, output directly.
-            if (!state.slidingWindowBuffer.shouldCheck()) {
+            if (!shouldCheck) {
+                LOG.debug("未达到检测条件，直接输出内容");
                 return Flux.fromIterable(rawSseBytes)
                         .map(bytes -> exchange.getResponse().bufferFactory().wrap(bytes));
             }
 
-            String accumulatedContent = state.slidingWindowBuffer.getWindowContent();
-
-            LOG.info("送审内容: {}", accumulatedContent);
+            // 获取滑动窗口内容
+            String slidingWindowContent = state.slidingWindowBuffer.getSlidingWindowContent(batchContent);
             
-            return contentSecurityService.checkText(accumulatedContent, handle)
+            LOG.info("滑动窗口详情 - 请求ID: {}, 批次: {}, 缓冲区大小: {}/{}, 检测模式: {}, 送审内容: {}", 
+                    stateKey, currentCount, 
+                    state.slidingWindowBuffer.getCurrentSize(), WINDOW_SIZE,
+                    state.slidingWindowBuffer.isFirstCheck() ? "首次检测" : "滑动窗口",
+                    slidingWindowContent);
+            
+            LOG.info("触发内容安全检测 - 请求ID: {}, 内容长度: {}, 检测类型: {}", 
+                    stateKey, slidingWindowContent.length(), 
+                    state.slidingWindowBuffer.isFirstCheck() ? "首次检测" : "阈值触发");
+            
+            return contentSecurityService.checkText(slidingWindowContent, handle)
                     .flatMapMany(resp -> {
+                        LOG.info("内容安全检测完成 - 请求ID: {}, 检测结果: {}, 是否通过: {}, 厂商: {}, 风险描述: {}", 
+                                stateKey, resp.isSuccess() ? "成功" : "失败", 
+                                resp.isPassed() ? "通过" : "不通过", 
+                                resp.getVendor(), resp.getRiskDescription());
+                        
                         if (!resp.isSuccess()) {
                             exchange.getAttributes().put("SEC_ERROR", true);
                             state.isBlocked.set(true);
@@ -136,11 +160,18 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
                             byte[] errBytes = errResp.getBytes(StandardCharsets.UTF_8);
                             return Flux.just(exchange.getResponse().bufferFactory().wrap(errBytes));
                         } else {
+                            LOG.info("内容安全检测通过 - 请求ID: {}, 厂商: {}", stateKey, resp.getVendor());
+                            
+                            // 如果是第一次检测，标记为已完成
+                            if (state.slidingWindowBuffer.isFirstCheck()) {
+                                state.slidingWindowBuffer.markFirstCheckCompleted();
+                            }
+                            
                             return Flux.fromIterable(rawSseBytes)
                                     .map(bytes -> exchange.getResponse().bufferFactory().wrap(bytes));
                         }
                     })
-                    .doOnError(e -> LOG.error("Error in content security check", e));
+                    .doOnError(e -> LOG.error("内容安全检测异常 - 请求ID: {}", stateKey, e));
         };
     }
 
@@ -172,6 +203,7 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
         return super.writeWith(body)
                 .doFinally(signalType -> {
                     // 在响应完全结束后清理状态
+                    LOG.info("清理装饰器状态 - 请求ID: {}, 信号类型: {}", stateKey, signalType);
                     STATE_MAP.remove(stateKey);
                 });
     }
@@ -198,6 +230,7 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
     private static class AccumulativeContentBuffer {
         private final int maxSize;
         private final StringBuilder contentBuffer;
+        private boolean isFirstCheck = true; // 标记是否是第一次检测
 
         public AccumulativeContentBuffer(int maxSize) {
             this.maxSize = maxSize;
@@ -206,21 +239,27 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
 
         /**
          * Add content to the buffer
+         * 添加内容到滑动窗口缓冲区，维护固定大小的滑动窗口
          */
         public void addContent(String content) {
             if (content == null || content.isEmpty()) {
                 return;
             }
             
-            int oldSize = contentBuffer.length();
+            // 先添加新内容
             contentBuffer.append(content);
-            int newSize = contentBuffer.length();
             
-            // 如果超过阈值，丢弃前面的内容
-            if (newSize > maxSize) {
-                int charsToRemove = newSize - maxSize;
-                String removedContent = contentBuffer.substring(0, charsToRemove);
-                contentBuffer.delete(0, charsToRemove);
+            // 如果不是第一次检测，按照滑动窗口逻辑处理
+            if (!isFirstCheck) {
+                // 如果超过阈值，丢弃前面的内容，保持滑动窗口大小
+                while (contentBuffer.length() > maxSize) {
+                    int charsToRemove = Math.min(contentBuffer.length() - maxSize, 10);
+                    String removedContent = contentBuffer.substring(0, charsToRemove);
+                    contentBuffer.delete(0, charsToRemove);
+                    
+                    LOG.debug("滑动窗口超出大小限制，丢弃前{}个字符: '{}', 当前缓冲区大小: {}", 
+                            charsToRemove, removedContent, contentBuffer.length());
+                }
             }
         }
 
@@ -228,6 +267,11 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
          * Determine whether a detection should be performed
          */
         public boolean shouldCheck() {
+            // 第一次检测：只要有内容就检测
+            if (isFirstCheck) {
+                return contentBuffer.length() > 0;
+            }
+            // 后续检测：达到滑动窗口大小才检测
             return contentBuffer.length() >= maxSize;
         }
 
@@ -235,8 +279,7 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
          * Retrieve current cumulative content
          */
         public String getWindowContent() {
-            String content = contentBuffer.toString();
-            return content;
+            return contentBuffer.toString();
         }
 
         /**
@@ -244,6 +287,55 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
          */
         public int getCurrentSize() {
             return contentBuffer.length();
+        }
+
+        /**
+         * Get the sliding window content for detection
+         * 返回滑动窗口内容：第一次检测返回完整内容，后续按滑动窗口返回
+         */
+        public String getSlidingWindowContent(String currentBatchContent) {
+            return contentBuffer.toString();
+        }
+
+        /**
+         * Mark that the first check has been completed
+         * 标记第一次检测已完成
+         */
+        public void markFirstCheckCompleted() {
+            isFirstCheck = false;
+            LOG.debug("第一次检测完成，切换到滑动窗口模式，当前缓冲区大小: {}", contentBuffer.length());
+        }
+
+        /**
+         * Check if this is the first check
+         */
+        public boolean isFirstCheck() {
+            return isFirstCheck;
+        }
+
+        /**
+         * Get the current buffer content
+         */
+        public String getBufferContent() {
+            return contentBuffer.toString();
+        }
+        
+        /**
+         * Get sliding window statistics for debugging
+         */
+        public String getSlidingWindowStats() {
+            return String.format("缓冲区大小: %d/%d, 模式: %s", 
+                    contentBuffer.length(), maxSize, 
+                    isFirstCheck ? "首次检测" : "滑动窗口");
+        }
+        
+        /**
+         * Get detailed sliding window info for debugging
+         */
+        public String getDetailedSlidingWindowInfo() {
+            return String.format("缓冲区大小: %d/%d, 模式: %s", 
+                    contentBuffer.length(), maxSize, 
+                    isFirstCheck ? "首次检测" : "滑动窗口");
         }
     }
 }

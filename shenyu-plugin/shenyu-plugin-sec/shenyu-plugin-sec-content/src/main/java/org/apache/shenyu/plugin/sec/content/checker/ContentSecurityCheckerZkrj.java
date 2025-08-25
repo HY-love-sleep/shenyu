@@ -17,6 +17,10 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.ExecutionException;
 
 /**
  * @author yHong
@@ -40,11 +44,10 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
 
     @Override
     public Mono<ContentSecurityResult> checkText(Object request, ContentSecurityHandle handle) {
-        if (!(request instanceof SafetyCheckRequest)) {
+        if (!(request instanceof SafetyCheckRequest zkrjRequest)) {
             return Mono.error(new IllegalArgumentException("Request must be SafetyCheckRequest for ZKRJ vendor"));
         }
-        
-        SafetyCheckRequest zkrjRequest = (SafetyCheckRequest) request;
+
         return checkText(zkrjRequest, handle)
                 .map(this::convertToResult)
                 .onErrorResume(throwable -> {
@@ -101,22 +104,30 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
                     .andThreadPoolKey(HystrixThreadPoolKey.Factory.asKey("ContentSecurityPool"))
                     .andThreadPoolPropertiesDefaults(
                             HystrixThreadPoolProperties.Setter()
-                                    .withCoreSize(Optional.ofNullable(handle.getHystrixThreadPoolCoreSize()).orElse(10))
-                                    .withMaximumSize(Optional.ofNullable(handle.getHystrixThreadPoolMaxSize()).orElse(30))
-                                    .withMaxQueueSize(Optional.ofNullable(handle.getHystrixThreadPoolQueueCapacity()).orElse(100))
+                                    .withCoreSize(Optional.ofNullable(handle.getHystrixThreadPoolCoreSize()).orElse(20))
+                                    .withMaximumSize(Optional.ofNullable(handle.getHystrixThreadPoolMaxSize()).orElse(50))
+                                    .withMaxQueueSize(Optional.ofNullable(handle.getHystrixThreadPoolQueueCapacity()).orElse(200))
                                     .withAllowMaximumSizeToDivergeFromCoreSize(Optional.ofNullable(handle.getAllowMaximumSizeToDivergeFromCoreSize()).orElse(Boolean.TRUE))
+                                    .withKeepAliveTimeMinutes(1)
+                                    .withQueueSizeRejectionThreshold(200)
                     )
                     .andCommandPropertiesDefaults(
                             HystrixCommandProperties.Setter()
                                     .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
-                                    .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(5000) )
+                                    .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(10000))
                                     .withCircuitBreakerEnabled(Optional.ofNullable(handle.getEnabled()).orElse(Boolean.TRUE))
-                                    .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(10))
-                                    .withCircuitBreakerErrorThresholdPercentage(Optional.ofNullable(handle.getBreakerErrorThresholdPercentage()).orElse(50))
-                                    .withCircuitBreakerSleepWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
+                                    .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(30))
+                                    .withCircuitBreakerErrorThresholdPercentage(Optional.ofNullable(handle.getBreakerErrorThresholdPercentage()).orElse(70))
+                                    .withCircuitBreakerSleepWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(15000))
                                     .withExecutionIsolationStrategy(
                                             HystrixCommandProperties.ExecutionIsolationStrategy.THREAD
                                     )
+                                    .withFallbackEnabled(true)
+                                    .withRequestLogEnabled(true)
+                                    .withRequestCacheEnabled(true)
+                                    .withMetricsRollingPercentileEnabled(true)
+                                    .withMetricsRollingPercentileWindowInMilliseconds(60000)
+                                    .withMetricsRollingPercentileWindowBuckets(6)
                     )
             );
             this.req = req;
@@ -125,13 +136,32 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
 
         @Override
         protected SafetyCheckResponse run() {
-            // run in Hystrix threadPool
-            SafetyCheckResponse resp = checkTextInternal(req, handle)
-                    .block(Duration.ofMillis(Optional.of(handle.getTimeoutInMilliseconds() - 500).orElse(4500)));
-            if (resp == null || !"200".equals(resp.getCode())) {
-                throw new RuntimeException("三方接口业务失败，code=" + (resp == null ? "null" : resp.getCode()));
+            try {
+                long timeout = Math.max(2000, Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(10000) - 2000);
+
+                CompletableFuture<SafetyCheckResponse> future = checkTextInternal(req, handle)
+                        .toFuture();
+                
+                SafetyCheckResponse resp = future.get(timeout, TimeUnit.MILLISECONDS);
+                
+                if (resp == null || !"200".equals(resp.getCode())) {
+                    throw new RuntimeException("三方接口业务失败，code=" + (resp == null ? "null" : resp.getCode()));
+                }
+                return resp;
+            } catch (TimeoutException e) {
+                LOG.error("ZKRJ API call timeout", e);
+                throw new RuntimeException("ZKRJ接口调用超时: " + e.getMessage(), e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOG.error("ZKRJ API call interrupted", e);
+                throw new RuntimeException("ZKRJ接口调用被中断: " + e.getMessage(), e);
+            } catch (ExecutionException e) {
+                LOG.error("ZKRJ API call execution failed", e);
+                throw new RuntimeException("ZKRJ接口调用执行失败: " + e.getMessage(), e);
+            } catch (Exception e) {
+                LOG.error("ZKRJ API call failed", e);
+                throw new RuntimeException("ZKRJ接口调用失败: " + e.getMessage(), e);
             }
-            return resp;
         }
 
         @Override

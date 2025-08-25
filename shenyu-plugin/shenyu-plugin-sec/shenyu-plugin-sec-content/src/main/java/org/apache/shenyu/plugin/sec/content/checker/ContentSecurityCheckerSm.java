@@ -20,6 +20,10 @@ import com.google.gson.GsonBuilder;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.ExecutionException;
 
 /**
  * 数美内容安全检测器
@@ -30,8 +34,7 @@ import java.util.Optional;
 public class ContentSecurityCheckerSm implements ContentSecurityChecker {
     private static final Logger LOG = LoggerFactory.getLogger(ContentSecurityCheckerSm.class);
     private static final WebClient WEB_CLIENT = WebClient.builder().build();
-    
-    // 配置Gson忽略null字段
+
     private static final Gson GSON = new GsonBuilder()
             .create();
 
@@ -48,11 +51,10 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
 
     @Override
     public Mono<ContentSecurityResult> checkText(Object request, ContentSecurityHandle handle) {
-        if (!(request instanceof SmTextCheckRequest)) {
+        if (!(request instanceof SmTextCheckRequest smRequest)) {
             return Mono.error(new IllegalArgumentException("Request must be SmTextCheckRequest for Shumei vendor"));
         }
-        
-        SmTextCheckRequest smRequest = (SmTextCheckRequest) request;
+
         return checkText(smRequest, handle)
                 .map(this::convertToResult)
                 .onErrorResume(throwable -> {
@@ -118,24 +120,30 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
                     .andThreadPoolKey(HystrixThreadPoolKey.Factory.asKey("ContentSecurityPool"))
                     .andThreadPoolPropertiesDefaults(
                             HystrixThreadPoolProperties.Setter()
-                                    .withCoreSize(Optional.ofNullable(handle.getHystrixThreadPoolCoreSize()).orElse(10))
-                                    .withMaximumSize(Optional.ofNullable(handle.getHystrixThreadPoolMaxSize()).orElse(30))
-                                    .withMaxQueueSize(Optional.ofNullable(handle.getHystrixThreadPoolQueueCapacity()).orElse(100))
+                                    .withCoreSize(Optional.ofNullable(handle.getHystrixThreadPoolCoreSize()).orElse(20))
+                                    .withMaximumSize(Optional.ofNullable(handle.getHystrixThreadPoolMaxSize()).orElse(50))
+                                    .withMaxQueueSize(Optional.ofNullable(handle.getHystrixThreadPoolQueueCapacity()).orElse(200))
                                     .withAllowMaximumSizeToDivergeFromCoreSize(Optional.ofNullable(handle.getAllowMaximumSizeToDivergeFromCoreSize()).orElse(Boolean.TRUE))
+                                    .withKeepAliveTimeMinutes(1)
+                                    .withQueueSizeRejectionThreshold(200)
                     )
                     .andCommandPropertiesDefaults(
                             HystrixCommandProperties.Setter()
                                     .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
-                                    .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(5000))
+                                    .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(10000))
                                     .withCircuitBreakerEnabled(Optional.ofNullable(handle.getEnabled()).orElse(Boolean.TRUE))
-                                    .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(20)) // 提高阈值，避免过早熔断
-                                    .withCircuitBreakerErrorThresholdPercentage(Optional.ofNullable(handle.getBreakerErrorThresholdPercentage()).orElse(80)) // 提高错误率阈值
-                                    .withCircuitBreakerSleepWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
+                                    .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(30))
+                                    .withCircuitBreakerErrorThresholdPercentage(Optional.ofNullable(handle.getBreakerErrorThresholdPercentage()).orElse(70))
+                                    .withCircuitBreakerSleepWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(15000))
                                     .withExecutionIsolationStrategy(
                                             HystrixCommandProperties.ExecutionIsolationStrategy.THREAD
                                     )
-                                    .withFallbackEnabled(true) // 启用fallback
-                                    .withRequestLogEnabled(true) // 启用请求日志，便于调试
+                                    .withFallbackEnabled(true)
+                                    .withRequestLogEnabled(true)
+                                    .withRequestCacheEnabled(true)
+                                    .withMetricsRollingPercentileEnabled(true)
+                                    .withMetricsRollingPercentileWindowInMilliseconds(60000)
+                                    .withMetricsRollingPercentileWindowBuckets(6)
                     )
             );
             this.req = req;
@@ -145,17 +153,28 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
         @Override
         protected SmTextCheckResponse run() {
             try {
-                // 在Hystrix线程池中运行
-                // 设置合理的超时时间，避免过短导致超时
-                long timeout = Math.max(1000, Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(5000) - 1000);
-                SmTextCheckResponse resp = checkTextInternal(req, handle)
-                        .block(Duration.ofMillis(timeout));
+                long timeout = Math.max(2000, Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(10000) - 2000);
+
+                CompletableFuture<SmTextCheckResponse> future = checkTextInternal(req, handle)
+                        .toFuture();
+                
+                SmTextCheckResponse resp = future.get(timeout, TimeUnit.MILLISECONDS);
                 
                 // 只要响应不为null就认为网络调用成功，业务逻辑在convertToResult中处理
                 if (resp == null) {
                     throw new RuntimeException("数美接口返回空响应");
                 }
                 return resp;
+            } catch (TimeoutException e) {
+                LOG.error("Shumei API call timeout", e);
+                throw new RuntimeException("数美接口调用超时: " + e.getMessage(), e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOG.error("Shumei API call interrupted", e);
+                throw new RuntimeException("数美接口调用被中断: " + e.getMessage(), e);
+            } catch (ExecutionException e) {
+                LOG.error("Shumei API call execution failed", e);
+                throw new RuntimeException("数美接口调用执行失败: " + e.getMessage(), e);
             } catch (Exception e) {
                 LOG.error("Shumei API call failed", e);
                 throw new RuntimeException("数美接口调用失败: " + e.getMessage(), e);
@@ -197,9 +216,9 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
         return WEB_CLIENT.post()
                 .uri(endpoint)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody)  // 使用序列化后的字符串
+                .bodyValue(requestBody)
                 .retrieve()
-                .bodyToMono(String.class)  // 先获取为字符串
+                .bodyToMono(String.class)
                 .map(responseBody -> {
                     try {
                         LOG.info("Shumei API response: {}", responseBody);

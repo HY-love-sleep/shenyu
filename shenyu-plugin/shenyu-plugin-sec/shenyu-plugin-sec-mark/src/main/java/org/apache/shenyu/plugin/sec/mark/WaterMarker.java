@@ -13,8 +13,11 @@ import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.ExecutionException;
 
 /**
  * @author yHong
@@ -41,22 +44,30 @@ public class WaterMarker {
                     .andThreadPoolKey(HystrixThreadPoolKey.Factory.asKey("WaterMarkPool"))
                     .andThreadPoolPropertiesDefaults(
                             HystrixThreadPoolProperties.Setter()
-                                    .withCoreSize(Optional.ofNullable(handle.getHystrixThreadPoolCoreSize()).orElse(20))
-                                    .withMaximumSize(Optional.ofNullable(handle.getHystrixThreadPoolMaxSize()).orElse(50))
-                                    .withMaxQueueSize(Optional.ofNullable(handle.getHystrixThreadPoolQueueCapacity()).orElse(200))
+                                    .withCoreSize(Optional.ofNullable(handle.getHystrixThreadPoolCoreSize()).orElse(20))  // 保持核心线程数
+                                    .withMaximumSize(Optional.ofNullable(handle.getHystrixThreadPoolMaxSize()).orElse(50))  // 保持最大线程数
+                                    .withMaxQueueSize(Optional.ofNullable(handle.getHystrixThreadPoolQueueCapacity()).orElse(200))  // 保持队列容量
                                     .withAllowMaximumSizeToDivergeFromCoreSize(true)
+                                    .withKeepAliveTimeMinutes(1)
+                                    .withQueueSizeRejectionThreshold(200)
                     )
                     .andCommandPropertiesDefaults(
                             HystrixCommandProperties.Setter()
                                     .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
-                                    .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(8000) )
+                                    .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(10000))  // 提高默认超时时间到10秒
                                     .withCircuitBreakerEnabled(Optional.ofNullable(handle.getEnabled()).orElse(Boolean.TRUE))
-                                    .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(20))
-                                    .withCircuitBreakerErrorThresholdPercentage(Optional.ofNullable(handle.getBreakerErrorThresholdPercentage()).orElse(50))
-                                    .withCircuitBreakerSleepWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
+                                    .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(30))  // 提高请求量阈值
+                                    .withCircuitBreakerErrorThresholdPercentage(Optional.ofNullable(handle.getBreakerErrorThresholdPercentage()).orElse(70))  // 调整错误率阈值
+                                    .withCircuitBreakerSleepWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(15000))  // 延长睡眠窗口
                                     .withExecutionIsolationStrategy(
                                             HystrixCommandProperties.ExecutionIsolationStrategy.THREAD
                                     )
+                                    .withFallbackEnabled(true)
+                                    .withRequestLogEnabled(true)
+                                    .withRequestCacheEnabled(true)
+                                    .withMetricsRollingPercentileEnabled(true)
+                                    .withMetricsRollingPercentileWindowInMilliseconds(60000)
+                                    .withMetricsRollingPercentileWindowBuckets(6)
                     )
             );
             this.request = request;
@@ -66,8 +77,24 @@ public class WaterMarker {
         @Override
         protected TextMarkResponse run() {
             try {
-                return addMarkForTextInternal(request, handle)
-                        .block(Duration.ofMillis(Optional.of(handle.getTimeoutInMilliseconds() - 1000).orElse(4000)));
+                // 设置合理的超时时间，确保有足够的缓冲时间
+                long timeout = Math.max(2000, Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(10000) - 2000);
+                
+                // 使用CompletableFuture避免阻塞，提高异步性能
+                CompletableFuture<TextMarkResponse> future = addMarkForTextInternal(request, handle)
+                        .toFuture();
+                
+                return future.get(timeout, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                LOG.error("Watermark API call timeout", e);
+                throw new RuntimeException("Watermark接口调用超时: " + e.getMessage(), e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOG.error("Watermark API call interrupted", e);
+                throw new RuntimeException("Watermark接口调用被中断: " + e.getMessage(), e);
+            } catch (ExecutionException e) {
+                LOG.error("Watermark API call execution failed", e);
+                throw new RuntimeException("Watermark接口调用执行失败: " + e.getMessage(), e);
             } catch (Exception e) {
                 LOG.error("Watermark run error: {}", e.getMessage(), e);
                 throw e;

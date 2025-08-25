@@ -81,6 +81,7 @@ public class ContentSecurityService {
             
             // 创建SmTextCheckData，设置默认值, 不需要前端配置
             ContentSecurityCheckerSm.SmTextCheckData data = new ContentSecurityCheckerSm.SmTextCheckData();
+            LOG.info("数美前置送审内容：{}", text);
             data.setText(text);
             // 不设置relateText，让它保持未初始化状态，避免null值问题
             data.setTokenId(DEFAULT_TOKEN_ID_PREFIX + System.currentTimeMillis());
