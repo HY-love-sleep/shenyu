@@ -4,7 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.shenyu.common.dto.convert.rule.ContentSecurityHandle;
 import org.apache.shenyu.plugin.base.decorator.GenericResponseDecorator;
-import org.apache.shenyu.plugin.sec.content.ContentSecurityChecker;
+import org.apache.shenyu.plugin.sec.content.ContentSecurityService;
+import org.apache.shenyu.plugin.sec.content.ContentSecurityResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -23,8 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * @author yHong
  * @since 2025/7/9 14:25
- * @version 1.0
- * // todo: Extracted into a generic decorator
+ * @version 2.0
  */
 public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
     private static final Logger LOG = LoggerFactory.getLogger(ContentSecurityResponseDecorator.class);
@@ -39,23 +39,25 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
     
     private final ContentSecurityHandle handle;
     private final String stateKey;
+    private final ContentSecurityService contentSecurityService;
 
-    public ContentSecurityResponseDecorator(ServerWebExchange exchange, ContentSecurityHandle handle) {
+    public ContentSecurityResponseDecorator(ServerWebExchange exchange, ContentSecurityHandle handle, ContentSecurityService contentSecurityService) {
         super(
                 exchange.getResponse(),
                 exchange,
                 BATCH_SIZE,
-                buildProcessAndOutput(handle, exchange)
+                buildProcessAndOutput(handle, exchange, contentSecurityService)
         );
         this.handle = handle;
         this.stateKey = exchange.getRequest().getId();
+        this.contentSecurityService = contentSecurityService;
         
         // init state
         STATE_MAP.put(stateKey, new DecoratorState(exchange, WINDOW_SIZE, BATCH_SIZE));
     }
 
     private static BiFunction<List<String>, List<byte[]>, Flux<DataBuffer>> buildProcessAndOutput(
-            ContentSecurityHandle handle, ServerWebExchange exchange) {
+            ContentSecurityHandle handle, ServerWebExchange exchange, ContentSecurityService contentSecurityService) {
         return (sseLines, rawSseBytes) -> {
             String stateKey = exchange.getRequest().getId();
             DecoratorState state = STATE_MAP.get(stateKey);
@@ -115,18 +117,22 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
 
             LOG.info("送审内容: {}", accumulatedContent);
             
-            return ContentSecurityChecker
-                    .checkText(
-                            ContentSecurityChecker.SafetyCheckRequest.forContent(
-                                    handle.getAccessKey(), handle.getAccessToken(), handle.getAppId(), accumulatedContent
-                            ),
-                            handle)
+            return contentSecurityService.checkText(accumulatedContent, handle)
                     .flatMapMany(resp -> {
-                        String cat = resp.getData() != null ? resp.getData().getContentCategory() : "";
-                        if ("违规".equals(cat) || "疑似".equals(cat)) {
+                        if (!resp.isSuccess()) {
                             exchange.getAttributes().put("SEC_ERROR", true);
                             state.isBlocked.set(true);
-                            String errResp = "{\"code\":1401,\"msg\":\"返回内容违规\",\"detail\":\"检测结果：" + cat + "\"}";
+                            String errResp = String.format("{\"code\":1401,\"msg\":\"内容安全检测服务异常\",\"detail\":\"%s，厂商：%s\"}", 
+                                    resp.getErrorMessage(), resp.getVendor());
+                            byte[] errBytes = errResp.getBytes(StandardCharsets.UTF_8);
+                            return Flux.just(exchange.getResponse().bufferFactory().wrap(errBytes));
+                        }
+                        
+                        if (!resp.isPassed()) {
+                            exchange.getAttributes().put("SEC_ERROR", true);
+                            state.isBlocked.set(true);
+                            String errResp = String.format("{\"code\":1401,\"msg\":\"返回内容违规\",\"detail\":\"检测结果：%s，厂商：%s\"}", 
+                                    resp.getRiskDescription(), resp.getVendor());
                             byte[] errBytes = errResp.getBytes(StandardCharsets.UTF_8);
                             return Flux.just(exchange.getResponse().bufferFactory().wrap(errBytes));
                         } else {

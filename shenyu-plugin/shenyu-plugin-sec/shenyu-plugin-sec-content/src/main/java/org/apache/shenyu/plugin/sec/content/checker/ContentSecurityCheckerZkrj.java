@@ -1,4 +1,4 @@
-package org.apache.shenyu.plugin.sec.content;
+package org.apache.shenyu.plugin.sec.content.checker;
 
 import com.netflix.hystrix.HystrixCommand;
 import com.netflix.hystrix.HystrixCommandGroupKey;
@@ -7,6 +7,7 @@ import com.netflix.hystrix.HystrixCommandProperties;
 import com.netflix.hystrix.HystrixThreadPoolKey;
 import com.netflix.hystrix.HystrixThreadPoolProperties;
 import org.apache.shenyu.common.dto.convert.rule.ContentSecurityHandle;
+import org.apache.shenyu.plugin.sec.content.ContentSecurityResult;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.http.MediaType;
 import reactor.core.publisher.Mono;
@@ -22,8 +23,8 @@ import java.util.Optional;
  * @version 1.0
  * @since 2025/7/3 15:23
  */
-public class ContentSecurityChecker {
-    private static final Logger LOG = LoggerFactory.getLogger(ContentSecurityChecker.class);
+public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
+    private static final Logger LOG = LoggerFactory.getLogger(ContentSecurityCheckerZkrj.class);
     //  reuse a singleton WebClient
     private static final WebClient WEB_CLIENT = WebClient.builder().build();
 
@@ -35,6 +36,57 @@ public class ContentSecurityChecker {
      */
     public static Mono<SafetyCheckResponse> checkText(final SafetyCheckRequest req, final ContentSecurityHandle handle) {
         return Mono.fromCallable(() -> new ContentSecHystrixCommand(req, handle).execute());
+    }
+
+    @Override
+    public Mono<ContentSecurityResult> checkText(Object request, ContentSecurityHandle handle) {
+        if (!(request instanceof SafetyCheckRequest)) {
+            return Mono.error(new IllegalArgumentException("Request must be SafetyCheckRequest for ZKRJ vendor"));
+        }
+        
+        SafetyCheckRequest zkrjRequest = (SafetyCheckRequest) request;
+        return checkText(zkrjRequest, handle)
+                .map(this::convertToResult)
+                .onErrorResume(throwable -> {
+                    LOG.error("ZKRJ content security check error", throwable);
+                    return Mono.just(ContentSecurityResult.error("zkrj", 
+                        throwable.getMessage(), "1500", "内容安全检测服务不可用"));
+                });
+    }
+
+    @Override
+    public String getVendor() {
+        return "zkrj";
+    }
+
+    @Override
+    public boolean supports(String vendor) {
+        return "zkrj".equalsIgnoreCase(vendor);
+    }
+
+    /**
+     * 将ZKRJ的响应转换为统一的结果格式
+     */
+    private ContentSecurityResult convertToResult(SafetyCheckResponse response) {
+        if (response == null || !"200".equals(response.getCode())) {
+            return ContentSecurityResult.error("zkrj", 
+                "ZKRJ接口业务失败，code=" + (response == null ? "null" : response.getCode()), 
+                response == null ? "1500" : response.getCode(), 
+                response == null ? "响应为空" : response.getMsg());
+        }
+
+        SafetyCheckData data = response.getData();
+        if (data == null) {
+            return ContentSecurityResult.error("zkrj", "ZKRJ响应数据为空", "1500", "响应数据为空");
+        }
+
+        String promptCategory = data.getPromptCategory();
+        if ("违规".equals(promptCategory) || "疑似".equals(promptCategory)) {
+            return ContentSecurityResult.failed("zkrj", promptCategory, 
+                "检测结果：" + promptCategory, response);
+        } else {
+            return ContentSecurityResult.passed("zkrj", response);
+        }
     }
 
     // HystrixCommand

@@ -1,189 +1,234 @@
-# Content Security Response Decorator
+# 内容安全检测系统
 
 ## 概述
 
-`ContentSecurityResponseDecorator` 是一个用于 Apache ShenYu 网关的内容安全检测装饰器，专门处理 LLM/流式响应的内容安全检测。该装饰器采用累积式检测机制，确保流式响应内容符合安全要求。
+本系统采用策略模式实现，支持多种厂商的内容安全检测服务，包括：
 
-## 核心特性
+- **ZKRJ** - 原有的内容安全检测服务
+- **数美** - 新增的内容安全检测服务
 
-### 1. 累积式检测机制
-- **累积内容**：每次检测时包含之前的所有内容
-- **阈值控制**：防止内容无限增长，超过阈值时丢弃前面的内容
-- **实时检测**：在流式响应过程中实时进行内容安全检测
+## 架构设计
 
-### 2. 配置参数
-```java
-// 累积式检测配置
-private static final int BATCH_SIZE = 20; // 每批处理的token数量
-private static final int WINDOW_SIZE = 200; // 累积内容阈值
+### 核心组件
+
+1. **ContentSecurityChecker** - 检测器接口
+2. **ContentSecurityResult** - 统一的检测结果格式
+3. **ContentSecurityCheckerFactory** - 检测器工厂
+4. **ContentSecurityService** - 统一的服务接口
+
+### 策略模式
+
+```
+ContentSecurityChecker (接口)
+├── ContentSecurityCheckerZkrj (ZKRJ实现)
+└── ContentSecurityCheckerSm (数美实现)
 ```
 
-### 3. 工作流程
+## 使用方法
 
-#### 初始化阶段
-1. 为每个请求创建唯一的状态管理器
-2. 初始化累积内容缓冲区
-3. 设置请求ID作为状态键
+### 1. 基础配置
 
-#### 处理阶段
-1. **内容提取**：从SSE响应中提取有效内容
-2. **内容累积**：将新内容追加到累积缓冲区
-3. **阈值检查**：检查累积内容是否达到检测阈值
-4. **安全检测**：调用第三方内容安全API进行检测
-5. **结果处理**：根据检测结果决定是否拦截响应
+在 `ContentSecurityHandle` 中设置 `vendor` 字段来选择检测器：
 
-#### 清理阶段
-- 响应完成后自动清理请求状态
-- 释放内存资源
-
-## 技术实现
-
-### 状态管理
 ```java
-private static final ConcurrentHashMap<String, DecoratorState> STATE_MAP = new ConcurrentHashMap<>();
+ContentSecurityHandle handle = new ContentSecurityHandle();
+handle.setVendor("zkrj");        // 使用ZKRJ检测器
+handle.setVendor("shumei");      // 使用数美检测器
 ```
 
-使用 `ConcurrentHashMap` 管理每个请求的状态，确保线程安全。
+**注意**: 如果不设置 `vendor` 字段，系统默认使用 `zkrj` 检测器，保持向后兼容。
 
-### 累积内容缓冲区
+### 2. 使用统一服务
+
 ```java
-private static class AccumulativeContentBuffer {
-    private final int maxSize;
-    private final StringBuilder contentBuffer;
-    
-    public void addContent(String content) {
-        contentBuffer.append(content);
-        if (contentBuffer.length() > maxSize) {
-            // 丢弃前面的内容，保持阈值
-            int charsToRemove = contentBuffer.length() - maxSize;
-            contentBuffer.delete(0, charsToRemove);
+@Autowired
+private ContentSecurityService contentSecurityService;
+
+// 自动选择检测器
+Mono<ContentSecurityResult> result = contentSecurityService.checkText(text, handle);
+
+// 指定厂商检测
+Mono<ContentSecurityResult> zkrjResult = contentSecurityService.checkTextWithZkrj(text, handle);
+Mono<ContentSecurityResult> shumeiResult = contentSecurityService.checkTextWithShumei(text, handle);
+```
+
+### 3. 直接使用检测器
+
+```java
+@Autowired
+private ContentSecurityCheckerFactory checkerFactory;
+
+ContentSecurityChecker checker = checkerFactory.getChecker(handle);
+Mono<ContentSecurityResult> result = checker.checkText(request, handle);
+```
+
+## 配置示例
+
+### ZKRJ配置
+
+```json
+{
+  "accessKey": "your_zkrj_access_key",
+  "accessToken": "your_zkrj_access_token",
+  "appId": "your_zkrj_app_id",
+  "url": "http://your-zkrj-api-endpoint",
+  "vendor": "zkrj"
+}
+```
+
+### 数美配置
+
+```json
+{
+  "accessKey": "your_shumei_access_key",
+  "appId": "your_shumei_app_id",
+  "eventId": "text",
+  "type": "TEXTRISK",
+  "url": "http://api-text-bj.fengkongcloud.com/text/v4",
+  "vendor": "shumei"
+}
+```
+
+## 检测结果
+
+### 统一结果格式
+
+```java
+public class ContentSecurityResult {
+    private boolean passed;           // 是否通过检测
+    private String riskLevel;         // 风险等级
+    private String riskDescription;   // 风险描述
+    private String vendor;            // 厂商标识
+    private Object vendorResult;      // 厂商原始结果
+    private String errorMessage;      // 错误信息
+    private boolean success;          // 检测是否成功
+    private String code;              // 检测响应码
+    private String message;           // 检测响应消息
+}
+```
+
+### 结果处理
+
+```java
+result.subscribe(resp -> {
+    if (resp.isSuccess()) {
+        if (resp.isPassed()) {
+            LOG.info("内容检测通过，厂商: {}", resp.getVendor());
+        } else {
+            LOG.warn("检测到风险内容: {}, 风险等级: {}, 厂商: {}", 
+                resp.getRiskDescription(), resp.getRiskLevel(), resp.getVendor());
         }
+    } else {
+        LOG.error("检测失败: {}, 厂商: {}", resp.getErrorMessage(), resp.getVendor());
+    }
+});
+```
+
+## 扩展新厂商
+
+### 1. 实现接口
+
+```java
+@Component
+public class NewVendorChecker implements ContentSecurityChecker {
+    
+    @Override
+    public Mono<ContentSecurityResult> checkText(Object request, ContentSecurityHandle handle) {
+        // 实现检测逻辑
+    }
+    
+    @Override
+    public String getVendor() {
+        return "newvendor";
+    }
+    
+    @Override
+    public boolean supports(String vendor) {
+        return "newvendor".equalsIgnoreCase(vendor);
     }
 }
 ```
 
-### SSE内容处理
-- 解析 `data:` 开头的SSE行
-- 提取JSON格式的内容
-- 跳过 `[DONE]` 结束标记
-- 累积有效内容
+### 2. 添加配置支持
 
-### 内容安全检测
+在 `ContentSecurityService` 中添加新的case：
+
 ```java
-ContentSecurityChecker.checkText(
-    ContentSecurityChecker.SafetyCheckRequest.forContent(
-        handle.getAccessKey(), 
-        handle.getAccessToken(), 
-        handle.getAppId(), 
-        accumulatedContent
-    ),
-    handle
-)
+case "newvendor":
+    return checkTextWithNewVendor(text, handle);
 ```
 
-## 使用示例
+## 特性
 
-### 配置参数
-```yaml
-shenyu:
-  plugin:
-    sec:
-      content:
-        batch-size: 20      # 每批处理token数量
-        window-size: 200    # 累积内容阈值
-```
+### 高可用性
+- Hystrix熔断器保护
+- 超时控制
+- 错误降级处理
 
-### 检测流程示例
+### 异步处理
+- 基于Reactor的响应式编程
+- 非阻塞I/O
+- 高并发支持
 
-```
-第1批: "Hello, how are you today?" (25字符)
-累积: 25字符 < 200阈值 → 不检测，直接输出
+### 可配置性
+- 支持多种风险类型检测
+- 灵活的配置参数
+- 多集群支持
 
-第2批: "I'm doing well, thank you for asking. The weather is nice today." (65字符)
-累积: 25 + 65 = 90字符 < 200阈值 → 不检测，直接输出
-
-第3批: "Let me tell you about a very long story that goes on and on..." (120字符)
-累积: 90 + 120 = 210字符 > 200阈值
-丢弃: 前10字符 → 保留200字符
-检测: 调用内容安全API
-结果: 通过 → 输出响应
-```
-
-## 日志输出
-
-### 关键日志
-- **送审内容**: `LOG.info("送审内容: {}", accumulatedContent);`
-- **错误状态**: `LOG.error("Decorator state not found for request: {}", stateKey);`
-
-### 日志示例
-```
-INFO - 送审内容: Hello, how are you today? I'm doing well, thank you for asking. The weather is nice today. Let me tell you about a very long story that goes on and on...
-```
-
-## 错误处理
-
-### 检测失败
-当内容安全检测失败时：
-- 设置 `SEC_ERROR` 属性
-- 返回错误响应：`{"code":1401,"msg":"返回内容违规","detail":"检测结果：违规"}`
-- 后续所有响应将被拦截
-
-### 状态管理错误
-- 自动清理无效状态
-- 线程安全的状态管理
-- 防止内存泄漏
-
-## 性能优化
-
-### 1. 累积机制
-- 减少API调用频率
-- 提高检测效率
-- 降低延迟
-
-### 2. 阈值控制
-- 防止内容无限增长
-- 控制内存使用
-- 保持响应性能
-
-### 3. 状态清理
-- 自动清理完成的状态
-- 防止内存泄漏
-- 提高系统稳定性
-
-## 兼容性
-
-### Hystrix熔断器
-- 完全兼容现有的 `ContentSecurityChecker`
-- 支持熔断器配置
-- 保持故障容错能力
-
-### 流式响应
-- 支持SSE格式
-- 支持流式JSON响应
-- 保持响应流连续性
-
-## 配置建议
-
-### 阈值设置
-- **小阈值 (50-100字符)**: 快速检测，适合敏感内容
-- **中等阈值 (200-500字符)**: 平衡性能和准确性
-- **大阈值 (1000+字符)**: 减少API调用，适合大批量内容
-
-### 批次大小
-- **小批次 (10-20)**: 快速响应，适合实时交互
-- **大批次 (50-100)**: 减少处理开销，适合批量处理
+### 扩展性
+- 支持多厂商集成
+- 模块化设计
+- 易于维护和扩展
 
 ## 注意事项
 
-1. **内存使用**: 累积缓冲区会占用内存，建议根据实际需求调整阈值
-2. **API限制**: 注意第三方内容安全API的调用频率限制
-3. **延迟影响**: 检测会增加响应延迟，建议在可接受的范围内
-4. **错误处理**: 确保正确处理检测失败的情况
+1. **厂商选择**: 通过 `vendor` 字段选择检测器，默认为 `zkrj`
+2. **配置兼容**: 保持与现有ZKRJ配置的完全兼容
+3. **错误处理**: 统一的错误处理和降级机制
+4. **性能优化**: 基于Hystrix的线程池管理和熔断器保护
 
-## 扩展性
+## 测试
 
-该实现具有良好的扩展性：
-- 支持不同的内容安全API
-- 可配置的检测策略
-- 灵活的阈值控制
-- 可扩展的状态管理机制 
+运行测试用例：
+
+```bash
+mvn test -Dtest=ContentSecurityCheckerSmTest
+mvn test -Dtest=ContentSecurityCheckerZkrjTest
+```
+
+## 总结
+
+本系统成功实现了：
+
+1. **策略模式**: 支持多种厂商检测器
+2. **统一接口**: 提供一致的检测结果格式
+3. **向后兼容**: 不影响现有ZKRJ检测器使用
+4. **易于扩展**: 新增厂商只需实现接口即可
+5. **高可用性**: 集成熔断器和错误处理机制
+6. **插件集成**: 已集成到ContentSecurityPlugin和ContentSecurityResponseDecorator中
+
+## 插件集成说明
+
+### ContentSecurityPlugin
+- 支持多厂商的请求内容检测
+- 根据配置自动选择对应的检测器
+- 保持原有的检测逻辑和错误处理
+
+### ContentSecurityResponseDecorator
+- 支持多厂商的响应内容检测
+- 保持现有的累积式检测机制
+- 根据配置自动选择对应的检测器
+- 支持流式响应的分块检测
+
+## 配置类说明
+
+### ContentSecurityPluginConfiguration
+所有相关的Bean都在`ContentSecurityPluginConfiguration`中配置，包括：
+
+- `ContentSecurityPlugin` - 主插件Bean
+- `ContentSecurityService` - 统一检测服务Bean
+- `ContentSecurityCheckerFactory` - 检测器工厂Bean
+- `ContentSecurityPluginDataHandler` - 插件数据处理器Bean
+
+### 自动注入
+检测器实现类（如`ContentSecurityCheckerZkrj`、`ContentSecurityCheckerSm`）会自动被Spring发现并注入到`ContentSecurityCheckerFactory`中，无需手动配置。 

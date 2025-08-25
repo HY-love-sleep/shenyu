@@ -10,6 +10,11 @@ public class ContentSecurityHandle {
     private String accessToken;
     private String appId;
     private String url;
+    // 厂商类型
+    private String vendor;
+    // 数美API特有参数
+    private String eventId;
+    private String type;
     // hystrix thread pool
     private Integer hystrixThreadPoolCoreSize;
     private Integer hystrixThreadPoolMaxSize;
@@ -53,6 +58,30 @@ public class ContentSecurityHandle {
 
     public void setAppId(String appId) {
         this.appId = appId;
+    }
+
+    public String getEventId() {
+        return eventId;
+    }
+
+    public void setEventId(String eventId) {
+        this.eventId = eventId;
+    }
+
+    public String getType() {
+        return type;
+    }
+
+    public void setType(String type) {
+        this.type = type;
+    }
+
+    public String getVendor() {
+        return vendor;
+    }
+
+    public void setVendor(String vendor) {
+        this.vendor = vendor;
     }
 
     public Integer getHystrixThreadPoolCoreSize() {
@@ -142,6 +171,9 @@ public class ContentSecurityHandle {
                 ", accessToken='" + accessToken + '\'' +
                 ", appId='" + appId + '\'' +
                 ", url='" + url + '\'' +
+                ", vendor='" + vendor + '\'' +
+                ", eventId='" + eventId + '\'' +
+                ", type='" + type + '\'' +
                 ", hystrixThreadPoolCoreSize=" + hystrixThreadPoolCoreSize +
                 ", hystrixThreadPoolMaxSize=" + hystrixThreadPoolMaxSize +
                 ", hystrixThreadPoolQueueCapacity=" + hystrixThreadPoolQueueCapacity +
