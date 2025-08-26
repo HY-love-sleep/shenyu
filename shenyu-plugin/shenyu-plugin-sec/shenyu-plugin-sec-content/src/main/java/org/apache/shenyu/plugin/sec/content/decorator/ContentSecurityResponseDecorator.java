@@ -136,7 +136,7 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
                     stateKey, slidingWindowContent.length(), 
                     state.slidingWindowBuffer.isFirstCheck() ? "首次检测" : "阈值触发");
             
-            return contentSecurityService.checkText(slidingWindowContent, handle)
+            return contentSecurityService.checkText(slidingWindowContent, handle, "output")
                     .flatMapMany(resp -> {
                         LOG.info("内容安全检测完成 - 请求ID: {}, 检测结果: {}, 是否通过: {}, 厂商: {}, 风险描述: {}", 
                                 stateKey, resp.isSuccess() ? "成功" : "失败", 

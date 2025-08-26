@@ -61,7 +61,7 @@ public class ContentSecurityPlugin extends AbstractShenyuPlugin {
 
                     String promptBody = new String(bytes, StandardCharsets.UTF_8);
 
-                    return contentSecurityService.checkText(promptBody, handle)
+                    return contentSecurityService.checkText(promptBody, handle, "input")
                             .flatMap(resp -> {
                                 if (!resp.isSuccess()) {
                                     String err = String.format(

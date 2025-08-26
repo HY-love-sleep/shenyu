@@ -60,7 +60,7 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
                 .onErrorResume(throwable -> {
                     LOG.error("Shumei content security check error", throwable);
                     return Mono.just(ContentSecurityResult.error("shumei", 
-                        throwable.getMessage(), "1500", "内容安全检测服务不可用"));
+                        throwable.getMessage(), "1500", "Shumei content Safety Detection service is not available"));
                 });
     }
 
@@ -80,15 +80,15 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
     private ContentSecurityResult convertToResult(SmTextCheckResponse response) {
         if (response == null || response.getCode() != 1100) {
             return ContentSecurityResult.error("shumei", 
-                "数美接口业务失败，code=" + (response == null ? "null" : response.getCode()), 
+                "failed call shumei api，code=" + (response == null ? "null" : response.getCode()),
                 response == null ? "1500" : String.valueOf(response.getCode()), 
-                response == null ? "响应为空" : response.getMessage());
+                response == null ? "response is null" : response.getMessage());
         }
 
         // 根据数美接口文档，使用riskLevel字段判断内容安全性
         String riskLevel = response.getRiskLevel();
         if (riskLevel == null) {
-            return ContentSecurityResult.error("shumei", "数美响应riskLevel为空", "1500", "riskLevel为空");
+            return ContentSecurityResult.error("shumei", "shumei's riskLevel is null", "1500", "shumei's riskLevel is null");
         }
 
         // 根据数美接口返回示例：
@@ -96,14 +96,14 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
         // - "PASS" 表示内容正常，可以通过
         if ("REJECT".equalsIgnoreCase(riskLevel)) {
             // 存在风险
-            String riskDescription = response.getRiskDescription() != null ? response.getRiskDescription() : "未知风险";
+            String riskDescription = response.getRiskDescription() != null ? response.getRiskDescription() : "Unknown risks";
             return ContentSecurityResult.failed("shumei", riskLevel, riskDescription, response);
         } else if ("PASS".equalsIgnoreCase(riskLevel)) {
             // 无风险
             return ContentSecurityResult.passed("shumei", response);
         } else {
             // 其他情况，可能是REVIEW等状态，暂时按有风险处理
-            String riskDescription = response.getRiskDescription() != null ? response.getRiskDescription() : "需要人工审核";
+            String riskDescription = response.getRiskDescription() != null ? response.getRiskDescription() : "Requires manual review";
             return ContentSecurityResult.failed("shumei", riskLevel, riskDescription, response);
         }
     }
@@ -129,7 +129,7 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
                     )
                     .andCommandPropertiesDefaults(
                             HystrixCommandProperties.Setter()
-                                    .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
+                                    .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getStatisticalWindow()).orElse(10000))
                                     .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(10000))
                                     .withCircuitBreakerEnabled(Optional.ofNullable(handle.getEnabled()).orElse(Boolean.TRUE))
                                     .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(30))
@@ -162,22 +162,22 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
                 
                 // 只要响应不为null就认为网络调用成功，业务逻辑在convertToResult中处理
                 if (resp == null) {
-                    throw new RuntimeException("数美接口返回空响应");
+                    throw new RuntimeException("Shumei interface returns an empty response");
                 }
                 return resp;
             } catch (TimeoutException e) {
                 LOG.error("Shumei API call timeout", e);
-                throw new RuntimeException("数美接口调用超时: " + e.getMessage(), e);
+                throw new RuntimeException("shumei interface call timed out several times: " + e.getMessage(), e);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 LOG.error("Shumei API call interrupted", e);
-                throw new RuntimeException("数美接口调用被中断: " + e.getMessage(), e);
+                throw new RuntimeException("shumei interface calls are interrupted: " + e.getMessage(), e);
             } catch (ExecutionException e) {
                 LOG.error("Shumei API call execution failed", e);
-                throw new RuntimeException("数美接口调用执行失败: " + e.getMessage(), e);
+                throw new RuntimeException("execution of shumei interface call failed: " + e.getMessage(), e);
             } catch (Exception e) {
                 LOG.error("Shumei API call failed", e);
-                throw new RuntimeException("数美接口调用失败: " + e.getMessage(), e);
+                throw new RuntimeException("shumei interface call failed: " + e.getMessage(), e);
             }
         }
 

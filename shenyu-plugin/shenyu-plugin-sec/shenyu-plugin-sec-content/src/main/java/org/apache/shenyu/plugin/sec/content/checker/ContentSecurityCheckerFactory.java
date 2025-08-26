@@ -5,7 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 
-
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -91,7 +91,7 @@ public class ContentSecurityCheckerFactory {
      * @return 支持的厂商类型列表
      */
     public List<String> getSupportedVendors() {
-        return checkerMap.keySet().stream().collect(Collectors.toList());
+        return new ArrayList<>(checkerMap.keySet());
     }
     
     /**

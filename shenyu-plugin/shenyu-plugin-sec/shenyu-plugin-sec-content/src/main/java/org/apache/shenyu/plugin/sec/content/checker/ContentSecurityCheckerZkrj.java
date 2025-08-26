@@ -14,7 +14,6 @@ import reactor.core.publisher.Mono;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -73,20 +72,21 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
     private ContentSecurityResult convertToResult(SafetyCheckResponse response) {
         if (response == null || !"200".equals(response.getCode())) {
             return ContentSecurityResult.error("zkrj", 
-                "ZKRJ接口业务失败，code=" + (response == null ? "null" : response.getCode()), 
+                "Failed Call ZKRJ API，code=" + (response == null ? "null" : response.getCode()),
                 response == null ? "1500" : response.getCode(), 
-                response == null ? "响应为空" : response.getMsg());
+                response == null ? "response is null" : response.getMsg());
         }
 
         SafetyCheckData data = response.getData();
         if (data == null) {
-            return ContentSecurityResult.error("zkrj", "ZKRJ响应数据为空", "1500", "响应数据为空");
+            return ContentSecurityResult.error("zkrj", "ZKRJ's response is null'", "1500", "response is null");
         }
 
+        // 根据zkrj接口文档， 依据PromptCategory来判断是否合规
         String promptCategory = data.getPromptCategory();
         if ("违规".equals(promptCategory) || "疑似".equals(promptCategory)) {
             return ContentSecurityResult.failed("zkrj", promptCategory, 
-                "检测结果：" + promptCategory, response);
+                "ZKRJ Test results：" + promptCategory, response);
         } else {
             return ContentSecurityResult.passed("zkrj", response);
         }
@@ -113,7 +113,7 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
                     )
                     .andCommandPropertiesDefaults(
                             HystrixCommandProperties.Setter()
-                                    .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
+                                    .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getStatisticalWindow()).orElse(10000))
                                     .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(10000))
                                     .withCircuitBreakerEnabled(Optional.ofNullable(handle.getEnabled()).orElse(Boolean.TRUE))
                                     .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(30))
@@ -145,22 +145,22 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
                 SafetyCheckResponse resp = future.get(timeout, TimeUnit.MILLISECONDS);
                 
                 if (resp == null || !"200".equals(resp.getCode())) {
-                    throw new RuntimeException("三方接口业务失败，code=" + (resp == null ? "null" : resp.getCode()));
+                    throw new RuntimeException("zkrj call failed，code=" + (resp == null ? "null" : resp.getCode()));
                 }
                 return resp;
             } catch (TimeoutException e) {
                 LOG.error("ZKRJ API call timeout", e);
-                throw new RuntimeException("ZKRJ接口调用超时: " + e.getMessage(), e);
+                throw new RuntimeException("ZKRJ Interface call timeout: " + e.getMessage(), e);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 LOG.error("ZKRJ API call interrupted", e);
-                throw new RuntimeException("ZKRJ接口调用被中断: " + e.getMessage(), e);
+                throw new RuntimeException("ZKRJ Interface call is interrupted: " + e.getMessage(), e);
             } catch (ExecutionException e) {
                 LOG.error("ZKRJ API call execution failed", e);
-                throw new RuntimeException("ZKRJ接口调用执行失败: " + e.getMessage(), e);
+                throw new RuntimeException("ZKRJ interface call failed to execute: " + e.getMessage(), e);
             } catch (Exception e) {
                 LOG.error("ZKRJ API call failed", e);
-                throw new RuntimeException("ZKRJ接口调用失败: " + e.getMessage(), e);
+                throw new RuntimeException("ZKRJ interface call failed: " + e.getMessage(), e);
             }
         }
 

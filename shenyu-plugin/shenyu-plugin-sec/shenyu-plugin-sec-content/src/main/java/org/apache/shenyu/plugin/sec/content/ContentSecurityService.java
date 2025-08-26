@@ -71,19 +71,29 @@ public class ContentSecurityService {
      * @return 检测结果
      */
     public Mono<ContentSecurityResult> checkTextWithShumei(String text, ContentSecurityHandle handle) {
+        return checkTextWithShumei(text, handle, null);
+    }
+
+    /**
+     * 检测文本内容安全性（数美厂商，支持eventId覆盖）
+     *
+     * @param text 需要检测的文本
+     * @param handle 配置参数
+     * @param eventIdOverride 可覆盖的eventId（null或空则使用handle.eventId）
+     * @return 检测结果
+     */
+    public Mono<ContentSecurityResult> checkTextWithShumei(final String text, final ContentSecurityHandle handle, final String eventIdOverride) {
         try {
-            // 创建SmTextCheckRequest，使用无参构造函数
-            SmTextCheckRequest request = new SmTextCheckRequest();
+            ContentSecurityCheckerSm.SmTextCheckRequest request = new ContentSecurityCheckerSm.SmTextCheckRequest();
             request.setAccessKey(handle.getAccessKey());
             request.setAppId(handle.getAppId());
-            request.setEventId(handle.getEventId());
+            String finalEventId = (eventIdOverride != null && !eventIdOverride.isEmpty()) ? eventIdOverride : handle.getEventId();
+            request.setEventId(finalEventId);
             request.setType(handle.getType());
-            
-            // 创建SmTextCheckData，设置默认值, 不需要前端配置
+
             ContentSecurityCheckerSm.SmTextCheckData data = new ContentSecurityCheckerSm.SmTextCheckData();
-            LOG.info("数美前置送审内容：{}", text);
+            LOG.debug("数美送审内容：{}", text);
             data.setText(text);
-            // 不设置relateText，让它保持未初始化状态，避免null值问题
             data.setTokenId(DEFAULT_TOKEN_ID_PREFIX + System.currentTimeMillis());
             data.setIp(DEFAULT_IP);
             data.setDeviceId(DEFAULT_DEVICE_ID);
@@ -94,16 +104,16 @@ public class ContentSecurityService {
             extra.setAtId(DEFAULT_AT_ID);
             extra.setRoom(DEFAULT_ROOM);
             extra.setReceiveTokenId(DEFAULT_RECEIVER_TOKEN_ID);
-            
+
             data.setExtra(extra);
             request.setData(data);
-            
+
             ContentSecurityChecker checker = checkerFactory.getChecker(handle);
             return checker.checkText(request, handle);
         } catch (Exception e) {
             LOG.error("Failed to check text with Shumei", e);
-            return Mono.just(ContentSecurityResult.error("shumei", 
-                e.getMessage(), "1500", "检测服务异常"));
+            return Mono.just(ContentSecurityResult.error("shumei",
+                    e.getMessage(), "1500", "检测服务异常"));
         }
     }
     
@@ -115,7 +125,7 @@ public class ContentSecurityService {
      * @param handle 配置参数
      * @return 检测结果
      */
-    public Mono<ContentSecurityResult> checkText(String text, ContentSecurityHandle handle) {
+    public Mono<ContentSecurityResult> checkText(final String text, final ContentSecurityHandle handle, final String eventId) {
         if (handle == null) {
             return Mono.just(ContentSecurityResult.error("unknown", 
                 "配置参数为空", "1500", "配置参数为空"));
@@ -130,7 +140,7 @@ public class ContentSecurityService {
         try {
             return switch (vendor.toLowerCase()) {
                 case "zkrj" -> checkTextWithZkrj(text, handle);
-                case "shumei" -> checkTextWithShumei(text, handle);
+                case "shumei" -> checkTextWithShumei(text, handle, eventId);
                 default -> Mono.just(ContentSecurityResult.error(vendor,
                         "不支持的厂商类型: " + vendor, "1500", "不支持的厂商类型"));
             };
