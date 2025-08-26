@@ -14,12 +14,9 @@ mkdir -p $PACKAGE_DIR
 echo "创建部署包目录: $PACKAGE_DIR"
 
 # 复制脚本文件
-cp build-multiarch.sh $PACKAGE_DIR/
-cp build-simple.sh $PACKAGE_DIR/
 cp build-x86.sh $PACKAGE_DIR/
 cp save-images.sh $PACKAGE_DIR/
 cp deploy-server.sh $PACKAGE_DIR/
-cp config-guide.md $PACKAGE_DIR/
 
 # 复制离线镜像目录
 if [ -d "offline-images" ]; then
@@ -35,13 +32,9 @@ cat > $PACKAGE_DIR/README.md << 'EOF'
 # ShenYu 离线部署包
 
 ## 文件说明
-
-- `build-multiarch.sh` - 多架构镜像构建脚本（在本地运行）
-- `build-simple.sh` - 简化版构建脚本（在本地运行）
 - `build-x86.sh` - x86架构构建脚本（在本地运行）
 - `save-images.sh` - 镜像保存脚本（在本地运行）
 - `deploy-server.sh` - 服务器部署脚本（在目标服务器运行）
-- `config-guide.md` - 配置文件修改指南
 - `offline-images/` - 离线Docker镜像文件
 
 ## 部署步骤
@@ -50,12 +43,6 @@ cat > $PACKAGE_DIR/README.md << 'EOF'
 ```bash
 # 构建x86架构镜像（推荐用于Linux服务器）
 ./build-x86.sh
-
-# 或构建当前架构镜像
-./build-simple.sh
-
-# 或构建多架构镜像
-./build-multiarch.sh
 ```
 
 ### 2. 保存镜像到离线包
@@ -72,7 +59,6 @@ cd shenyu-deployment-package-YYYYMMDD
 ```
 
 ### 5. 修改配置文件
-参考 `config-guide.md` 修改配置文件中的IP地址和数据库信息
 
 ### 6. 启动服务
 ```bash

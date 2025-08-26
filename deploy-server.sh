@@ -7,6 +7,8 @@ set -e
 
 echo "开始部署ShenYu服务到服务器..."
 
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
 # 创建部署目录
 DEPLOY_DIR="/opt/shenyu"
 mkdir -p $DEPLOY_DIR/{admin,bootstrap,configs,logs}
@@ -15,8 +17,8 @@ echo "创建部署目录: $DEPLOY_DIR"
 
 # 加载Docker镜像
 echo "加载Docker镜像..."
-docker load -i offline-images/shenyu-admin.tar
-docker load -i offline-images/shenyu-bootstrap.tar
+docker load -i "$SCRIPT_DIR/offline-images/shenyu-admin-x86.tar"
+docker load -i "$SCRIPT_DIR/offline-images/shenyu-bootstrap-x86.tar"
 
 # 重新标记镜像（将x86标签改为latest标签）
 echo "重新标记镜像..."
