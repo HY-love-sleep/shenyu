@@ -11,6 +11,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import reactor.netty.http.client.HttpClient;
+import reactor.netty.resources.ConnectionProvider;
+import io.netty.channel.ChannelOption;
+import io.netty.handler.timeout.ReadTimeoutHandler;
+import io.netty.handler.timeout.WriteTimeoutHandler;
 import reactor.core.publisher.Mono;
 
 import java.util.Optional;
@@ -26,7 +32,28 @@ import java.util.concurrent.ExecutionException;
  */
 public class WaterMarker {
     private static final Logger LOG = LoggerFactory.getLogger(WaterMarker.class);
-    private static final WebClient WEB_CLIENT = WebClient.builder().build();
+    private static final ConnectionProvider WM_PROVIDER = ConnectionProvider.builder("watermark-pool")
+            .maxConnections(800)
+            .pendingAcquireMaxCount(8000)
+            .pendingAcquireTimeout(java.time.Duration.ofSeconds(2))
+            .maxIdleTime(java.time.Duration.ofSeconds(30))
+            .maxLifeTime(java.time.Duration.ofMinutes(2))
+            .evictInBackground(java.time.Duration.ofSeconds(30))
+            .build();
+
+    private static final HttpClient WM_HTTP_CLIENT = HttpClient.create(WM_PROVIDER)
+            .compress(true)
+            .keepAlive(true)
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 1000)
+            .responseTimeout(java.time.Duration.ofSeconds(4))
+            .doOnConnected(conn -> conn
+                    .addHandlerLast(new ReadTimeoutHandler(5))
+                    .addHandlerLast(new WriteTimeoutHandler(5))
+            );
+
+    private static final WebClient WEB_CLIENT = WebClient.builder()
+            .clientConnector(new ReactorClientHttpConnector(WM_HTTP_CLIENT))
+            .build();
 
     public static Mono<TextMarkResponse> addMarkForText(final TextMarkRequest request, final ContentMarkHandle handle) {
         return Mono.fromCallable(() -> new AddMarkHystrixCommand(request, handle).execute());
@@ -44,9 +71,9 @@ public class WaterMarker {
                     .andThreadPoolKey(HystrixThreadPoolKey.Factory.asKey("WaterMarkPool"))
                     .andThreadPoolPropertiesDefaults(
                             HystrixThreadPoolProperties.Setter()
-                                    .withCoreSize(Optional.ofNullable(handle.getHystrixThreadPoolCoreSize()).orElse(20))  // 保持核心线程数
-                                    .withMaximumSize(Optional.ofNullable(handle.getHystrixThreadPoolMaxSize()).orElse(50))  // 保持最大线程数
-                                    .withMaxQueueSize(Optional.ofNullable(handle.getHystrixThreadPoolQueueCapacity()).orElse(200))  // 保持队列容量
+                                    .withCoreSize(Optional.ofNullable(handle.getHystrixThreadPoolCoreSize()).orElse(800))
+                                    .withMaximumSize(Optional.ofNullable(handle.getHystrixThreadPoolMaxSize()).orElse(1000))
+                                    .withMaxQueueSize(Optional.ofNullable(handle.getHystrixThreadPoolQueueCapacity()).orElse(50))
                                     .withAllowMaximumSizeToDivergeFromCoreSize(true)
                                     .withKeepAliveTimeMinutes(1)
                                     .withQueueSizeRejectionThreshold(200)
@@ -54,11 +81,11 @@ public class WaterMarker {
                     .andCommandPropertiesDefaults(
                             HystrixCommandProperties.Setter()
                                     .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
-                                    .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(10000))  // 提高默认超时时间到10秒
+                                    .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(5000))
                                     .withCircuitBreakerEnabled(Optional.ofNullable(handle.getEnabled()).orElse(Boolean.TRUE))
-                                    .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(30))  // 提高请求量阈值
-                                    .withCircuitBreakerErrorThresholdPercentage(Optional.ofNullable(handle.getBreakerErrorThresholdPercentage()).orElse(70))  // 调整错误率阈值
-                                    .withCircuitBreakerSleepWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(15000))  // 延长睡眠窗口
+                                    .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(150))
+                                    .withCircuitBreakerErrorThresholdPercentage(Optional.ofNullable(handle.getBreakerErrorThresholdPercentage()).orElse(70))
+                                    .withCircuitBreakerSleepWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(8000))
                                     .withExecutionIsolationStrategy(
                                             HystrixCommandProperties.ExecutionIsolationStrategy.THREAD
                                     )

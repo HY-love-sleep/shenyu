@@ -10,6 +10,12 @@ import org.apache.shenyu.common.dto.convert.rule.ContentSecurityHandle;
 import org.apache.shenyu.plugin.sec.content.ContentSecurityResult;
 import org.apache.shenyu.common.utils.GsonUtils;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import reactor.netty.http.client.HttpClient;
+import reactor.netty.resources.ConnectionProvider;
+import io.netty.channel.ChannelOption;
+import io.netty.handler.timeout.ReadTimeoutHandler;
+import io.netty.handler.timeout.WriteTimeoutHandler;
 import org.springframework.http.MediaType;
 import reactor.core.publisher.Mono;
 import org.slf4j.Logger;
@@ -17,7 +23,6 @@ import org.slf4j.LoggerFactory;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -33,7 +38,28 @@ import java.util.concurrent.ExecutionException;
  */
 public class ContentSecurityCheckerSm implements ContentSecurityChecker {
     private static final Logger LOG = LoggerFactory.getLogger(ContentSecurityCheckerSm.class);
-    private static final WebClient WEB_CLIENT = WebClient.builder().build();
+    private static final ConnectionProvider SHUMEI_PROVIDER = ConnectionProvider.builder("shumei-pool")
+            .maxConnections(1200)
+            .pendingAcquireMaxCount(15000)
+            .pendingAcquireTimeout(java.time.Duration.ofMillis(1500))
+            .maxIdleTime(java.time.Duration.ofSeconds(30))
+            .maxLifeTime(java.time.Duration.ofMinutes(2))
+            .evictInBackground(java.time.Duration.ofSeconds(30))
+            .build();
+
+    private static final HttpClient SHUMEI_HTTP_CLIENT = HttpClient.create(SHUMEI_PROVIDER)
+            .compress(true)
+            .keepAlive(true)
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 800)
+            .responseTimeout(java.time.Duration.ofMillis(1500))
+            .doOnConnected(conn -> conn
+                    .addHandlerLast(new ReadTimeoutHandler(2))
+                    .addHandlerLast(new WriteTimeoutHandler(2))
+            );
+
+    private static final WebClient WEB_CLIENT = WebClient.builder()
+            .clientConnector(new ReactorClientHttpConnector(SHUMEI_HTTP_CLIENT))
+            .build();
 
     private static final Gson GSON = new GsonBuilder()
             .create();
@@ -120,21 +146,21 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
                     .andThreadPoolKey(HystrixThreadPoolKey.Factory.asKey("ContentSecurityPool"))
                     .andThreadPoolPropertiesDefaults(
                             HystrixThreadPoolProperties.Setter()
-                                    .withCoreSize(Optional.ofNullable(handle.getHystrixThreadPoolCoreSize()).orElse(20))
-                                    .withMaximumSize(Optional.ofNullable(handle.getHystrixThreadPoolMaxSize()).orElse(50))
-                                    .withMaxQueueSize(Optional.ofNullable(handle.getHystrixThreadPoolQueueCapacity()).orElse(200))
+                                    .withCoreSize(Optional.ofNullable(handle.getHystrixThreadPoolCoreSize()).orElse(1000))
+                                    .withMaximumSize(Optional.ofNullable(handle.getHystrixThreadPoolMaxSize()).orElse(1200))
+                                    .withMaxQueueSize(Optional.ofNullable(handle.getHystrixThreadPoolQueueCapacity()).orElse(50))
                                     .withAllowMaximumSizeToDivergeFromCoreSize(Optional.ofNullable(handle.getAllowMaximumSizeToDivergeFromCoreSize()).orElse(Boolean.TRUE))
                                     .withKeepAliveTimeMinutes(1)
                                     .withQueueSizeRejectionThreshold(200)
                     )
                     .andCommandPropertiesDefaults(
                             HystrixCommandProperties.Setter()
-                                    .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getStatisticalWindow()).orElse(10000))
-                                    .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(10000))
+                                    .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getStatisticalWindow()).orElse(5000))
+                                    .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(1800))
                                     .withCircuitBreakerEnabled(Optional.ofNullable(handle.getEnabled()).orElse(Boolean.TRUE))
-                                    .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(30))
-                                    .withCircuitBreakerErrorThresholdPercentage(Optional.ofNullable(handle.getBreakerErrorThresholdPercentage()).orElse(70))
-                                    .withCircuitBreakerSleepWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(15000))
+                                    .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(200))
+                                    .withCircuitBreakerErrorThresholdPercentage(Optional.ofNullable(handle.getBreakerErrorThresholdPercentage()).orElse(60))
+                                    .withCircuitBreakerSleepWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(4000))
                                     .withExecutionIsolationStrategy(
                                             HystrixCommandProperties.ExecutionIsolationStrategy.THREAD
                                     )
