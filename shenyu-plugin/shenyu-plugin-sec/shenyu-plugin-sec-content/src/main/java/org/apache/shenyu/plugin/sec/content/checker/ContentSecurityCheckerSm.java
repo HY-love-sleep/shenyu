@@ -29,6 +29,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ExecutionException;
+import org.apache.shenyu.plugin.sec.content.metrics.SecurityMetricsCollector;
+import io.micrometer.core.instrument.Timer;
 
 /**
  * 数美内容安全检测器
@@ -38,6 +40,8 @@ import java.util.concurrent.ExecutionException;
  */
 public class ContentSecurityCheckerSm implements ContentSecurityChecker {
     private static final Logger LOG = LoggerFactory.getLogger(ContentSecurityCheckerSm.class);
+    
+    private final SecurityMetricsCollector metricsCollector;
     private static final ConnectionProvider SHUMEI_PROVIDER = ConnectionProvider.builder("shumei-pool")
             .maxConnections(1200)
             .pendingAcquireMaxCount(15000)
@@ -63,6 +67,26 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
 
     private static final Gson GSON = new GsonBuilder()
             .create();
+            
+    public ContentSecurityCheckerSm() {
+        this.metricsCollector = null;
+    }
+    
+    public ContentSecurityCheckerSm(SecurityMetricsCollector metricsCollector) {
+        this.metricsCollector = metricsCollector;
+        if (metricsCollector != null) {
+            metricsCollector.initConnectionPoolMetrics("shumei-pool");
+            metricsCollector.initThreadPoolMetrics("ContentSecurityPool");
+            
+            // 测试创建一个计数器
+            try {
+                metricsCollector.getMeterRegistry().counter("test.constructor.counter").increment();
+                LOG.info("Test counter created in constructor successfully!");
+            } catch (Exception e) {
+                LOG.error("Failed to create test counter: " + e.getMessage());
+            }
+        }
+    }
 
     /**
      * 调用数美内容安全检测API检查文本合规性
@@ -72,7 +96,18 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
      * @return 异步Mono，产生检测结果
      */
     public static Mono<SmTextCheckResponse> checkText(final SmTextCheckRequest req, final ContentSecurityHandle handle) {
-        return Mono.fromCallable(() -> new ContentSecHystrixCommand(req, handle).execute());
+        return Mono.fromCallable(() -> new ContentSecHystrixCommand(req, handle, null).execute());
+    }
+    
+    /**
+     * 调用数美内容安全检测API检查文本合规性（带监控）
+     *
+     * @param req 请求体，包含检测参数
+     * @param handle 配置参数
+     * @return 异步Mono，产生检测结果
+     */
+    public Mono<SmTextCheckResponse> checkTextWithMetrics(final SmTextCheckRequest req, final ContentSecurityHandle handle) {
+        return Mono.fromCallable(() -> new ContentSecHystrixCommand(req, handle, this.metricsCollector).execute());
     }
 
     @Override
@@ -81,10 +116,47 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
             return Mono.error(new IllegalArgumentException("Request must be SmTextCheckRequest for Shumei vendor"));
         }
 
-        return checkText(smRequest, handle)
-                .map(this::convertToResult)
+        // 记录API调用指标
+        Timer.Sample sample = null;
+        if (metricsCollector != null) {
+            metricsCollector.recordApiCall("shumei", "checkText");
+            sample = metricsCollector.startTimer();
+        }
+
+        final Timer.Sample finalSample = sample;
+        
+        return checkTextWithMetrics(smRequest, handle)
+                .map(response -> {
+                    ContentSecurityResult result = this.convertToResult(response);
+                    
+                    // 记录成功指标
+                    if (metricsCollector != null) {
+                        metricsCollector.recordApiSuccess("shumei", "checkText");
+                        if (finalSample != null) {
+                            metricsCollector.stopTimer(finalSample, "shumei", "checkText");
+                        }
+                        
+                        // 记录响应大小（如果有响应数据）
+                        if (response != null) {
+                            String responseStr = GsonUtils.getInstance().toJson(response);
+                            metricsCollector.recordResponseSize("shumei", responseStr.length());
+                        }
+                    }
+                    
+                    return result;
+                })
                 .onErrorResume(throwable -> {
                     LOG.error("Shumei content security check error", throwable);
+                    
+                    // 记录失败指标
+                    if (metricsCollector != null) {
+                        String errorType = throwable.getClass().getSimpleName();
+                        metricsCollector.recordApiFailure("shumei", "checkText", errorType);
+                        if (finalSample != null) {
+                            metricsCollector.stopTimer(finalSample, "shumei", "checkText");
+                        }
+                    }
+                    
                     return Mono.just(ContentSecurityResult.error("shumei", 
                         throwable.getMessage(), "1500", "Shumei content Safety Detection service is not available"));
                 });
@@ -138,8 +210,9 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
     static class ContentSecHystrixCommand extends HystrixCommand<SmTextCheckResponse> {
         private final SmTextCheckRequest req;
         private final ContentSecurityHandle handle;
+        private final SecurityMetricsCollector metricsCollector;
 
-        ContentSecHystrixCommand(SmTextCheckRequest req, ContentSecurityHandle handle) {
+        ContentSecHystrixCommand(SmTextCheckRequest req, ContentSecurityHandle handle, SecurityMetricsCollector metricsCollector) {
             super(Setter
                     .withGroupKey(HystrixCommandGroupKey.Factory.asKey("ContentSecurity"))
                     .andCommandKey(HystrixCommandKey.Factory.asKey("CheckText"))
@@ -174,6 +247,7 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
             );
             this.req = req;
             this.handle = handle;
+            this.metricsCollector = metricsCollector;
         }
 
         @Override
@@ -212,15 +286,37 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
             LOG.warn("Content security fallback triggered by Hystrix. Command: {}, Group: {}, ThreadPool: {}", 
                     getCommandKey().name(), getCommandGroup().name(), getThreadPoolKey().name());
             
-            // 记录导致fallback的原因
-            if (isResponseTimedOut()) {
-                LOG.warn("Fallback reason: Response timed out");
-            } else if (isFailedExecution()) {
-                LOG.warn("Fallback reason: Execution failed", getFailedExecutionException());
-            } else if (isResponseRejected()) {
-                LOG.warn("Fallback reason: Response rejected");
-            } else if (isCircuitBreakerOpen()) {
-                LOG.warn("Fallback reason: Circuit breaker is open");
+            // 记录Hystrix fallback指标
+            if (metricsCollector != null) {
+                metricsCollector.recordApiFailure("shumei", "checkText", "hystrix_fallback");
+                
+                // 检查fallback原因并记录
+                if (isResponseTimedOut()) {
+                    LOG.warn("Fallback reason: Response timed out");
+                    metricsCollector.recordApiFailure("shumei", "checkText", "timeout");
+                } else if (isFailedExecution()) {
+                    LOG.warn("Fallback reason: Execution failed", getFailedExecutionException());
+                    metricsCollector.recordApiFailure("shumei", "checkText", "execution_failed");
+                } else if (isResponseRejected()) {
+                    LOG.warn("Fallback reason: Response rejected");
+                    metricsCollector.recordApiFailure("shumei", "checkText", "rejected");
+                    // 记录线程池拒绝
+                    metricsCollector.incrementThreadPoolRejectedTasks("ContentSecurityPool");
+                } else if (isCircuitBreakerOpen()) {
+                    LOG.warn("Fallback reason: Circuit breaker is open");
+                    metricsCollector.recordApiFailure("shumei", "checkText", "circuit_breaker_open");
+                }
+            } else {
+                // 记录导致fallback的原因
+                if (isResponseTimedOut()) {
+                    LOG.warn("Fallback reason: Response timed out");
+                } else if (isFailedExecution()) {
+                    LOG.warn("Fallback reason: Execution failed", getFailedExecutionException());
+                } else if (isResponseRejected()) {
+                    LOG.warn("Fallback reason: Response rejected");
+                } else if (isCircuitBreakerOpen()) {
+                    LOG.warn("Fallback reason: Circuit breaker is open");
+                }
             }
             
             SmTextCheckResponse resp = new SmTextCheckResponse();

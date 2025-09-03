@@ -24,6 +24,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ExecutionException;
+import org.apache.shenyu.plugin.sec.mark.metrics.SecurityMetricsCollector;
+import io.micrometer.core.instrument.Timer;
 
 /**
  * @author yHong
@@ -32,6 +34,8 @@ import java.util.concurrent.ExecutionException;
  */
 public class WaterMarker {
     private static final Logger LOG = LoggerFactory.getLogger(WaterMarker.class);
+    
+    private final SecurityMetricsCollector metricsCollector;
     private static final ConnectionProvider WM_PROVIDER = ConnectionProvider.builder("watermark-pool")
             .maxConnections(800)
             .pendingAcquireMaxCount(8000)
@@ -54,17 +58,100 @@ public class WaterMarker {
     private static final WebClient WEB_CLIENT = WebClient.builder()
             .clientConnector(new ReactorClientHttpConnector(WM_HTTP_CLIENT))
             .build();
+            
+    public WaterMarker() {
+        this.metricsCollector = null;
+    }
+    
+    public WaterMarker(SecurityMetricsCollector metricsCollector) {
+        this.metricsCollector = metricsCollector;
+        if (metricsCollector != null) {
+            metricsCollector.initConnectionPoolMetrics("watermark-pool");
+            metricsCollector.initThreadPoolMetrics("WaterMarkPool");
+        }
+    }
 
     public static Mono<TextMarkResponse> addMarkForText(final TextMarkRequest request, final ContentMarkHandle handle) {
-        return Mono.fromCallable(() -> new AddMarkHystrixCommand(request, handle).execute());
+        return Mono.fromCallable(() -> new AddMarkHystrixCommand(request, handle, null).execute());
+    }
+    
+    /**
+     * 为文本添加水印（带监控）
+     *
+     * @param request 请求参数
+     * @param handle 配置参数
+     * @return 异步Mono，产生水印结果
+     */
+    public Mono<TextMarkResponse> addMarkForTextWithMetrics(final TextMarkRequest request, final ContentMarkHandle handle) {
+        return Mono.fromCallable(() -> new AddMarkHystrixCommand(request, handle, this.metricsCollector).execute());
+    }
+    
+    /**
+     * 为文本添加水印的公共方法（带监控支持）
+     *
+     * @param request 请求参数
+     * @param handle 配置参数
+     * @return 异步Mono，产生水印结果
+     */
+    public Mono<TextMarkResponse> addMark(final TextMarkRequest request, final ContentMarkHandle handle) {
+        // 记录API调用指标
+        Timer.Sample sample = null;
+        if (metricsCollector != null) {
+            metricsCollector.recordApiCall("watermark", "addMark");
+            sample = metricsCollector.startTimer();
+        }
+
+        final Timer.Sample finalSample = sample;
+        
+        return addMarkForTextWithMetrics(request, handle)
+                .map(response -> {
+                    // 记录成功指标
+                    if (metricsCollector != null) {
+                        metricsCollector.recordApiSuccess("watermark", "addMark");
+                        if (finalSample != null) {
+                            metricsCollector.stopTimer(finalSample, "watermark", "addMark");
+                        }
+                        
+                        // 记录响应大小（如果有响应数据）
+                        if (response != null && response.getData() != null && response.getData().getContent() != null) {
+                            metricsCollector.recordResponseSize("watermark", response.getData().getContent().length());
+                        }
+                    }
+                    
+                    return response;
+                })
+                .onErrorResume(throwable -> {
+                    LOG.error("Watermark API call error", throwable);
+                    
+                    // 记录失败指标
+                    if (metricsCollector != null) {
+                        String errorType = throwable.getClass().getSimpleName();
+                        metricsCollector.recordApiFailure("watermark", "addMark", errorType);
+                        if (finalSample != null) {
+                            metricsCollector.stopTimer(finalSample, "watermark", "addMark");
+                        }
+                    }
+                    
+                    // 返回错误响应
+                    TextMarkResponse errorResponse = new TextMarkResponse();
+                    errorResponse.setCode(-1);
+                    errorResponse.setMessage("Watermark API error: " + throwable.getMessage());
+                    errorResponse.setSuccess(false);
+                    Data data = new Data();
+                    data.setContent(request.getContent());
+                    data.setWaterMarkDarkInfo(null);
+                    errorResponse.setData(data);
+                    return Mono.just(errorResponse);
+                });
     }
 
     // HystrixCommand
     static class AddMarkHystrixCommand extends HystrixCommand<TextMarkResponse> {
         private final TextMarkRequest request;
         private final ContentMarkHandle handle;
+        private final SecurityMetricsCollector metricsCollector;
 
-        AddMarkHystrixCommand(TextMarkRequest request, ContentMarkHandle handle) {
+        AddMarkHystrixCommand(TextMarkRequest request, ContentMarkHandle handle, SecurityMetricsCollector metricsCollector) {
             super(Setter
                     .withGroupKey(HystrixCommandGroupKey.Factory.asKey("WaterMark"))
                     .andCommandKey(HystrixCommandKey.Factory.asKey("AddMarkForText"))
@@ -99,6 +186,7 @@ public class WaterMarker {
             );
             this.request = request;
             this.handle = handle;
+            this.metricsCollector = metricsCollector;
         }
 
         @Override
@@ -131,6 +219,29 @@ public class WaterMarker {
         @Override
         protected TextMarkResponse getFallback() {
             LOG.warn("Watermark fallback by Hystrix.");
+            
+            // 记录Hystrix fallback指标
+            if (metricsCollector != null) {
+                metricsCollector.recordApiFailure("watermark", "addMark", "hystrix_fallback");
+                
+                // 检查fallback原因并记录
+                if (isResponseTimedOut()) {
+                    LOG.warn("Fallback reason: Response timed out");
+                    metricsCollector.recordApiFailure("watermark", "addMark", "timeout");
+                } else if (isFailedExecution()) {
+                    LOG.warn("Fallback reason: Execution failed", getFailedExecutionException());
+                    metricsCollector.recordApiFailure("watermark", "addMark", "execution_failed");
+                } else if (isResponseRejected()) {
+                    LOG.warn("Fallback reason: Response rejected");
+                    metricsCollector.recordApiFailure("watermark", "addMark", "rejected");
+                    // 记录线程池拒绝
+                    metricsCollector.incrementThreadPoolRejectedTasks("WaterMarkPool");
+                } else if (isCircuitBreakerOpen()) {
+                    LOG.warn("Fallback reason: Circuit breaker is open");
+                    metricsCollector.recordApiFailure("watermark", "addMark", "circuit_breaker_open");
+                }
+            }
+            
             TextMarkResponse fallback = new TextMarkResponse();
             fallback.setCode(-1);
             fallback.setMessage("Watermark API error, fallback by Hystrix");

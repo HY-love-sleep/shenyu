@@ -26,6 +26,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ExecutionException;
+import org.apache.shenyu.plugin.sec.content.metrics.SecurityMetricsCollector;
+import io.micrometer.core.instrument.Timer;
 
 /**
  * @author yHong
@@ -34,6 +36,8 @@ import java.util.concurrent.ExecutionException;
  */
 public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
     private static final Logger LOG = LoggerFactory.getLogger(ContentSecurityCheckerZkrj.class);
+    
+    private final SecurityMetricsCollector metricsCollector;
     //  reuse a singleton WebClient
     private static final ConnectionProvider ZKRJ_PROVIDER = ConnectionProvider.builder("zkrj-pool")
             .maxConnections(1200)
@@ -57,6 +61,18 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
     private static final WebClient WEB_CLIENT = WebClient.builder()
             .clientConnector(new ReactorClientHttpConnector(ZKRJ_HTTP_CLIENT))
             .build();
+            
+    public ContentSecurityCheckerZkrj() {
+        this.metricsCollector = null;
+    }
+    
+    public ContentSecurityCheckerZkrj(SecurityMetricsCollector metricsCollector) {
+        this.metricsCollector = metricsCollector;
+        if (metricsCollector != null) {
+            metricsCollector.initConnectionPoolMetrics("zkrj-pool");
+            metricsCollector.initThreadPoolMetrics("ContentSecurityPool");
+        }
+    }
 
     /**
      * Call a third-party content security detection API to check the compliance of a given text.
@@ -65,7 +81,18 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
      * @return Asynchronous Mono, which produces a SafetyCheckResponse test result
      */
     public static Mono<SafetyCheckResponse> checkText(final SafetyCheckRequest req, final ContentSecurityHandle handle) {
-        return Mono.fromCallable(() -> new ContentSecHystrixCommand(req, handle).execute());
+        return Mono.fromCallable(() -> new ContentSecHystrixCommand(req, handle, null).execute());
+    }
+    
+    /**
+     * 调用第三方内容安全检测API检查文本合规性（带监控）
+     *
+     * @param req 请求体，包含检测参数
+     * @param handle 配置参数
+     * @return 异步Mono，产生检测结果
+     */
+    public Mono<SafetyCheckResponse> checkTextWithMetrics(final SafetyCheckRequest req, final ContentSecurityHandle handle) {
+        return Mono.fromCallable(() -> new ContentSecHystrixCommand(req, handle, this.metricsCollector).execute());
     }
 
     @Override
@@ -74,10 +101,47 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
             return Mono.error(new IllegalArgumentException("Request must be SafetyCheckRequest for ZKRJ vendor"));
         }
 
-        return checkText(zkrjRequest, handle)
-                .map(this::convertToResult)
+        // 记录API调用指标
+        Timer.Sample sample = null;
+        if (metricsCollector != null) {
+            metricsCollector.recordApiCall("zkrj", "checkText");
+            sample = metricsCollector.startTimer();
+        }
+
+        final Timer.Sample finalSample = sample;
+        
+        return checkTextWithMetrics(zkrjRequest, handle)
+                .map(response -> {
+                    ContentSecurityResult result = this.convertToResult(response);
+                    
+                    // 记录成功指标
+                    if (metricsCollector != null) {
+                        metricsCollector.recordApiSuccess("zkrj", "checkText");
+                        if (finalSample != null) {
+                            metricsCollector.stopTimer(finalSample, "zkrj", "checkText");
+                        }
+                        
+                        // 记录响应大小（如果有响应数据）
+                        if (response != null) {
+                            String responseStr = response.toString();
+                            metricsCollector.recordResponseSize("zkrj", responseStr.length());
+                        }
+                    }
+                    
+                    return result;
+                })
                 .onErrorResume(throwable -> {
                     LOG.error("ZKRJ content security check error", throwable);
+                    
+                    // 记录失败指标
+                    if (metricsCollector != null) {
+                        String errorType = throwable.getClass().getSimpleName();
+                        metricsCollector.recordApiFailure("zkrj", "checkText", errorType);
+                        if (finalSample != null) {
+                            metricsCollector.stopTimer(finalSample, "zkrj", "checkText");
+                        }
+                    }
+                    
                     return Mono.just(ContentSecurityResult.error("zkrj", 
                         throwable.getMessage(), "1500", "内容安全检测服务不可用"));
                 });
@@ -123,8 +187,9 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
     static class ContentSecHystrixCommand extends HystrixCommand<SafetyCheckResponse> {
         private final SafetyCheckRequest req;
         private final ContentSecurityHandle handle;
+        private final SecurityMetricsCollector metricsCollector;
 
-        ContentSecHystrixCommand(SafetyCheckRequest req, ContentSecurityHandle handle) {
+        ContentSecHystrixCommand(SafetyCheckRequest req, ContentSecurityHandle handle, SecurityMetricsCollector metricsCollector) {
             super(Setter
                     .withGroupKey(HystrixCommandGroupKey.Factory.asKey("ContentSecurity"))
                     .andCommandKey(HystrixCommandKey.Factory.asKey("CheckText"))
@@ -159,6 +224,7 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
             );
             this.req = req;
             this.handle = handle;
+            this.metricsCollector = metricsCollector;
         }
 
         @Override
@@ -194,6 +260,29 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
         @Override
         protected SafetyCheckResponse getFallback() {
             LOG.warn("Content security fallback by Hystrix.");
+            
+            // 记录Hystrix fallback指标
+            if (metricsCollector != null) {
+                metricsCollector.recordApiFailure("zkrj", "checkText", "hystrix_fallback");
+                
+                // 检查fallback原因并记录
+                if (isResponseTimedOut()) {
+                    LOG.warn("Fallback reason: Response timed out");
+                    metricsCollector.recordApiFailure("zkrj", "checkText", "timeout");
+                } else if (isFailedExecution()) {
+                    LOG.warn("Fallback reason: Execution failed", getFailedExecutionException());
+                    metricsCollector.recordApiFailure("zkrj", "checkText", "execution_failed");
+                } else if (isResponseRejected()) {
+                    LOG.warn("Fallback reason: Response rejected");
+                    metricsCollector.recordApiFailure("zkrj", "checkText", "rejected");
+                    // 记录线程池拒绝
+                    metricsCollector.incrementThreadPoolRejectedTasks("ContentSecurityPool");
+                } else if (isCircuitBreakerOpen()) {
+                    LOG.warn("Fallback reason: Circuit breaker is open");
+                    metricsCollector.recordApiFailure("zkrj", "checkText", "circuit_breaker_open");
+                }
+            }
+            
             SafetyCheckResponse resp = new SafetyCheckResponse();
             resp.setCode("1500");
             resp.setMsg("内容安全检测服务不可用(fallback by Hystrix)");
