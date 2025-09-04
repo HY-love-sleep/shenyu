@@ -49,6 +49,7 @@ public class ContentSecurityCheckerSm implements ContentSecurityChecker {
             .maxIdleTime(java.time.Duration.ofSeconds(30))
             .maxLifeTime(java.time.Duration.ofMinutes(2))
             .evictInBackground(java.time.Duration.ofSeconds(30))
+            .metrics(true)
             .build();
 
     private static final HttpClient SHUMEI_HTTP_CLIENT = HttpClient.create(SHUMEI_PROVIDER)

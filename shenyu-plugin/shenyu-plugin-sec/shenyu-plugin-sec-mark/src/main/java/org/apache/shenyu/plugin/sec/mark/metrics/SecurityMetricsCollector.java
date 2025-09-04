@@ -39,23 +39,23 @@ public class SecurityMetricsCollector {
         this.meterRegistry = meterRegistry;
         
         // 初始化计数器
-        this.apiCallTotal = Counter.builder("watermark.api.calls.total")
+        this.apiCallTotal = Counter.builder("security_api_calls_total")
                 .description("Total number of watermark API calls")
                 .register(meterRegistry);
                 
-        this.apiCallSuccess = Counter.builder("watermark.api.calls.success")
+        this.apiCallSuccess = Counter.builder("security_api_calls_success")
                 .description("Number of successful watermark API calls")
                 .register(meterRegistry);
                 
-        this.apiCallFailure = Counter.builder("watermark.api.calls.failure")
+        this.apiCallFailure = Counter.builder("security_api_calls_failure")
                 .description("Number of failed watermark API calls")
                 .register(meterRegistry);
                 
-        this.apiCallDuration = Timer.builder("watermark.api.calls.duration")
+        this.apiCallDuration = Timer.builder("security_api_calls_duration")
                 .description("Duration of watermark API calls")
                 .register(meterRegistry);
                 
-        this.responseSize = DistributionSummary.builder("watermark.api.response.size")
+        this.responseSize = DistributionSummary.builder("security_api_response_size")
                 .description("Size of watermark API responses")
                 .register(meterRegistry);
     }
@@ -178,21 +178,21 @@ public class SecurityMetricsCollector {
     }
     
     public void recordApiCall(String vendor, String operation) {
-        Counter.builder("watermark.api.calls.total")
+        Counter.builder("security_api_calls_total")
                 .tags("vendor", vendor, "operation", operation)
                 .register(meterRegistry)
                 .increment();
     }
     
     public void recordApiSuccess(String vendor, String operation) {
-        Counter.builder("watermark.api.calls.success")
+        Counter.builder("security_api_calls_success")
                 .tags("vendor", vendor, "operation", operation)
                 .register(meterRegistry)
                 .increment();
     }
     
     public void recordApiFailure(String vendor, String operation, String errorType) {
-        Counter.builder("watermark.api.calls.failure")
+        Counter.builder("security_api_calls_failure")
                 .tags("vendor", vendor, "operation", operation, "error", errorType)
                 .register(meterRegistry)
                 .increment();
@@ -203,13 +203,13 @@ public class SecurityMetricsCollector {
     }
     
     public void stopTimer(Timer.Sample sample, String vendor, String operation) {
-        sample.stop(Timer.builder("watermark.api.calls.duration")
+        sample.stop(Timer.builder("security_api_calls_duration")
                 .tags("vendor", vendor, "operation", operation)
                 .register(meterRegistry));
     }
     
     public void recordResponseSize(String vendor, long sizeBytes) {
-        DistributionSummary.builder("watermark.api.response.size")
+        DistributionSummary.builder("security_api_response_size")
                 .tags("vendor", vendor)
                 .register(meterRegistry)
                 .record(sizeBytes);

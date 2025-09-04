@@ -57,11 +57,12 @@ public class SecurityMetricsCollector {
                 .description("Number of failed security API calls")
                 .register(meterRegistry);
                 
-        this.apiCallDuration = Timer.builder("security.api.calls.duration")
+        // 统一下划线风格，Prometheus中会导出为 security_api_calls_duration_seconds_*
+        this.apiCallDuration = Timer.builder("security_api_calls_duration")
                 .description("Duration of security API calls")
                 .register(meterRegistry);
                 
-        this.responseSize = DistributionSummary.builder("security.api.response.size")
+        this.responseSize = DistributionSummary.builder("security_api_response_size")
                 .description("Size of security API responses")
                 .register(meterRegistry);
     }
@@ -185,8 +186,7 @@ public class SecurityMetricsCollector {
     
     public void recordApiCall(String vendor, String operation) {
         try {
-            // 使用一个全新的指标名称，避免冲突
-            Counter counter = meterRegistry.counter("security_api_calls_tagged", "vendor", vendor, "operation", operation);
+            Counter counter = meterRegistry.counter("security_api_calls_total", "vendor", vendor, "operation", operation);
             counter.increment();
             // 静默记录，避免日志污染
         } catch (Exception e) {
@@ -195,14 +195,14 @@ public class SecurityMetricsCollector {
     }
     
     public void recordApiSuccess(String vendor, String operation) {
-        Counter.builder("security.api.calls.success")
+        Counter.builder("security_api_calls_success")
                 .tags("vendor", vendor, "operation", operation)
                 .register(meterRegistry)
                 .increment();
     }
     
     public void recordApiFailure(String vendor, String operation, String errorType) {
-        Counter.builder("security.api.calls.failure")
+        Counter.builder("security_api_calls_failure")
                 .tags("vendor", vendor, "operation", operation, "error", errorType)
                 .register(meterRegistry)
                 .increment();
@@ -219,7 +219,7 @@ public class SecurityMetricsCollector {
     }
     
     public void recordResponseSize(String vendor, long sizeBytes) {
-        DistributionSummary.builder("security.api.response.size")
+        DistributionSummary.builder("security_api_response_size")
                 .tags("vendor", vendor)
                 .register(meterRegistry)
                 .record(sizeBytes);

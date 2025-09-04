@@ -43,6 +43,7 @@ public class WaterMarker {
             .maxIdleTime(java.time.Duration.ofSeconds(30))
             .maxLifeTime(java.time.Duration.ofMinutes(2))
             .evictInBackground(java.time.Duration.ofSeconds(30))
+            .metrics(true)
             .build();
 
     private static final HttpClient WM_HTTP_CLIENT = HttpClient.create(WM_PROVIDER)

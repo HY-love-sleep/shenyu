@@ -46,6 +46,7 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
             .maxIdleTime(java.time.Duration.ofSeconds(30))
             .maxLifeTime(java.time.Duration.ofMinutes(2))
             .evictInBackground(java.time.Duration.ofSeconds(30))
+            .metrics(true)
             .build();
 
     private static final HttpClient ZKRJ_HTTP_CLIENT = HttpClient.create(ZKRJ_PROVIDER)
