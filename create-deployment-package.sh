@@ -18,6 +18,20 @@ cp build-x86.sh $PACKAGE_DIR/
 cp save-images.sh $PACKAGE_DIR/
 cp deploy-server.sh $PACKAGE_DIR/
 
+# 复制监控相关（Prometheus & Grafana）
+if [ -f "docker-compose-monitoring.yml" ]; then
+    cp docker-compose-monitoring.yml $PACKAGE_DIR/
+fi
+if [ -f "start-monitoring.sh" ]; then
+    cp start-monitoring.sh $PACKAGE_DIR/
+fi
+if [ -f "stop-monitoring.sh" ]; then
+    cp stop-monitoring.sh $PACKAGE_DIR/
+fi
+if [ -d "monitoring" ]; then
+    cp -r monitoring $PACKAGE_DIR/
+fi
+
 # 复制离线镜像目录
 if [ -d "offline-images" ]; then
     echo "复制离线镜像目录..."
@@ -36,6 +50,9 @@ cat > $PACKAGE_DIR/README.md << 'EOF'
 - `save-images.sh` - 镜像保存脚本（在本地运行）
 - `deploy-server.sh` - 服务器部署脚本（在目标服务器运行）
 - `offline-images/` - 离线Docker镜像文件
+- `docker-compose-monitoring.yml` - Prometheus & Grafana 编排文件（可选）
+- `start-monitoring.sh` / `stop-monitoring.sh` - 一键启动/停止监控（可选）
+- `monitoring/` - Grafana 面板与 Prometheus 配置（可选）
 
 ## 部署步骤
 
@@ -65,11 +82,15 @@ cd shenyu-deployment-package-YYYYMMDD
 cd /opt/shenyu
 ./start-admin.sh
 ./start-bootstrap.sh
+
+# （可选）启动监控
+cd /opt/shenyu
+./start-monitoring.sh
 ```
 
 ## 注意事项
 
-- 确保目标服务器已安装Docker
+- 确保目标服务器已安装Docker（以及 docker compose 插件）
 - 确保目标服务器上的MySQL服务正常运行
 - 配置文件中的占位符需要替换为实际值
 - 服务启动后可以通过配置文件挂载进行配置修改

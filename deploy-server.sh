@@ -132,6 +132,20 @@ EOF
 # 设置执行权限
 chmod +x $DEPLOY_DIR/*.sh
 
+# 复制监控编排与面板（可选）
+if [ -f "$SCRIPT_DIR/docker-compose-monitoring.yml" ]; then
+  cp "$SCRIPT_DIR/docker-compose-monitoring.yml" $DEPLOY_DIR/
+fi
+if [ -f "$SCRIPT_DIR/start-monitoring.sh" ]; then
+  cp "$SCRIPT_DIR/start-monitoring.sh" $DEPLOY_DIR/
+fi
+if [ -f "$SCRIPT_DIR/stop-monitoring.sh" ]; then
+  cp "$SCRIPT_DIR/stop-monitoring.sh" $DEPLOY_DIR/
+fi
+if [ -d "$SCRIPT_DIR/monitoring" ]; then
+  cp -r "$SCRIPT_DIR/monitoring" $DEPLOY_DIR/
+fi
+
 echo "部署完成！"
 echo ""
 echo "请修改配置文件中的以下内容："
