@@ -283,6 +283,11 @@ public enum PluginEnum {
     AI_PROXY(199, 0, "aiProxy"),
 
     /**
+     * MAAS-proxy plugin enum.
+     */
+    AI_MAAS_PROXY(198, 0, "aiMaasProxy"),
+
+    /**
      * Ai-token-limiter plugin enum.
      */
     AI_TOKEN_LIMITER(171, 0, "aiTokenLimiter"),

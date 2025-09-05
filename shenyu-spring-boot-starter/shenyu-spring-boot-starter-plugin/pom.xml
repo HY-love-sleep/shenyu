@@ -81,5 +81,6 @@
         <module>shenyu-spring-boot-starter-plugin-sec-content-security</module>
         <module>shenyu-spring-boot-starter-plugin-sec-sensitive-words</module>
         <module>shenyu-spring-boot-starter-plugin-sec-watermark</module>
+        <module>shenyu-spring-boot-starter-plugin-ai-maas-proxy</module>
     </modules>
 </project>
