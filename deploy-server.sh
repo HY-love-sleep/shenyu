@@ -71,6 +71,18 @@ shenyu:
       enabled: true
       messageMaxSize: 10240
       allowOrigins: ws://YOUR_SERVER_IP:9095;ws://YOUR_SERVER_IP:9195;
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
 EOF
 
 cat > $DEPLOY_DIR/configs/bootstrap/application.yml << 'EOF'
@@ -88,6 +100,18 @@ shenyu:
   sync:
     websocket:
       urls: ws://YOUR_SERVER_IP:9095/websocket
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
 EOF
 
 # 创建启动脚本

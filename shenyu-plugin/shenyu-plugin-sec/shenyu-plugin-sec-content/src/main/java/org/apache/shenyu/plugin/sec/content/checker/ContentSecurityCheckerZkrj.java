@@ -55,8 +55,8 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
             .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 800)
             .responseTimeout(java.time.Duration.ofMillis(1500))
             .doOnConnected(conn -> conn
-                    .addHandlerLast(new ReadTimeoutHandler(2))
-                    .addHandlerLast(new WriteTimeoutHandler(2))
+                    .addHandlerLast(new ReadTimeoutHandler(10))
+                    .addHandlerLast(new WriteTimeoutHandler(5))
             );
 
     private static final WebClient WEB_CLIENT = WebClient.builder()

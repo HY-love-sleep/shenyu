@@ -52,7 +52,7 @@ public class WaterMarker {
             .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 1000)
             .responseTimeout(java.time.Duration.ofSeconds(4))
             .doOnConnected(conn -> conn
-                    .addHandlerLast(new ReadTimeoutHandler(5))
+                    .addHandlerLast(new ReadTimeoutHandler(10))
                     .addHandlerLast(new WriteTimeoutHandler(5))
             );
 
