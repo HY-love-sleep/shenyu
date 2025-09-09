@@ -9,6 +9,8 @@ import java.util.Objects;
  */
 public class ContentMarkHandle {
     private String url;
+
+    private Integer chunkBatchSize;
     // docking watermark interface, although I don't know what the point of adding these parameters is...
     private String modelName;
     private String applicationName;
@@ -176,22 +178,31 @@ public class ContentMarkHandle {
         this.breakerSleepWindowInMilliseconds = breakerSleepWindowInMilliseconds;
     }
 
+    public Integer getChunkBatchSize() {
+        return chunkBatchSize;
+    }
+
+    public void setChunkBatchSize(Integer chunkBatchSize) {
+        this.chunkBatchSize = chunkBatchSize;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (o == null || getClass() != o.getClass()) return false;
         ContentMarkHandle that = (ContentMarkHandle) o;
-        return Objects.equals(url, that.url) && Objects.equals(modelName, that.modelName) && Objects.equals(applicationName, that.applicationName) && Objects.equals(serviceProvider, that.serviceProvider) && Objects.equals(serviceUser, that.serviceUser) && Objects.equals(timeoutMs, that.timeoutMs) && Objects.equals(accessKey, that.accessKey) && Objects.equals(accessToken, that.accessToken) && Objects.equals(hystrixThreadPoolCoreSize, that.hystrixThreadPoolCoreSize) && Objects.equals(hystrixThreadPoolMaxSize, that.hystrixThreadPoolMaxSize) && Objects.equals(hystrixThreadPoolQueueCapacity, that.hystrixThreadPoolQueueCapacity) && Objects.equals(allowMaximumSizeToDivergeFromCoreSize, that.allowMaximumSizeToDivergeFromCoreSize) && Objects.equals(timeoutInMilliseconds, that.timeoutInMilliseconds) && Objects.equals(enabled, that.enabled) && Objects.equals(statisticalWindow, that.statisticalWindow) && Objects.equals(breakerRequestVolumeThreshold, that.breakerRequestVolumeThreshold) && Objects.equals(breakerErrorThresholdPercentage, that.breakerErrorThresholdPercentage) && Objects.equals(breakerSleepWindowInMilliseconds, that.breakerSleepWindowInMilliseconds);
+        return Objects.equals(url, that.url) && Objects.equals(chunkBatchSize, that.chunkBatchSize) && Objects.equals(modelName, that.modelName) && Objects.equals(applicationName, that.applicationName) && Objects.equals(serviceProvider, that.serviceProvider) && Objects.equals(serviceUser, that.serviceUser) && Objects.equals(timeoutMs, that.timeoutMs) && Objects.equals(accessKey, that.accessKey) && Objects.equals(accessToken, that.accessToken) && Objects.equals(hystrixThreadPoolCoreSize, that.hystrixThreadPoolCoreSize) && Objects.equals(hystrixThreadPoolMaxSize, that.hystrixThreadPoolMaxSize) && Objects.equals(hystrixThreadPoolQueueCapacity, that.hystrixThreadPoolQueueCapacity) && Objects.equals(allowMaximumSizeToDivergeFromCoreSize, that.allowMaximumSizeToDivergeFromCoreSize) && Objects.equals(timeoutInMilliseconds, that.timeoutInMilliseconds) && Objects.equals(enabled, that.enabled) && Objects.equals(statisticalWindow, that.statisticalWindow) && Objects.equals(breakerRequestVolumeThreshold, that.breakerRequestVolumeThreshold) && Objects.equals(breakerErrorThresholdPercentage, that.breakerErrorThresholdPercentage) && Objects.equals(breakerSleepWindowInMilliseconds, that.breakerSleepWindowInMilliseconds);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(url, modelName, applicationName, serviceProvider, serviceUser, timeoutMs, accessKey, accessToken, hystrixThreadPoolCoreSize, hystrixThreadPoolMaxSize, hystrixThreadPoolQueueCapacity, allowMaximumSizeToDivergeFromCoreSize, timeoutInMilliseconds, enabled, statisticalWindow, breakerRequestVolumeThreshold, breakerErrorThresholdPercentage, breakerSleepWindowInMilliseconds);
+        return Objects.hash(url, chunkBatchSize, modelName, applicationName, serviceProvider, serviceUser, timeoutMs, accessKey, accessToken, hystrixThreadPoolCoreSize, hystrixThreadPoolMaxSize, hystrixThreadPoolQueueCapacity, allowMaximumSizeToDivergeFromCoreSize, timeoutInMilliseconds, enabled, statisticalWindow, breakerRequestVolumeThreshold, breakerErrorThresholdPercentage, breakerSleepWindowInMilliseconds);
     }
 
     @Override
     public String toString() {
         return "ContentMarkHandle{" +
                 "url='" + url + '\'' +
+                ", chunkSize=" + chunkBatchSize +
                 ", modelName='" + modelName + '\'' +
                 ", applicationName='" + applicationName + '\'' +
                 ", serviceProvider='" + serviceProvider + '\'' +
@@ -211,4 +222,6 @@ public class ContentMarkHandle {
                 ", breakerSleepWindowInMilliseconds=" + breakerSleepWindowInMilliseconds +
                 '}';
     }
+
+
 }

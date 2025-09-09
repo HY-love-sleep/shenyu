@@ -15,6 +15,7 @@ import org.reactivestreams.Publisher;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
@@ -28,8 +29,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
     private static final Logger LOG = LoggerFactory.getLogger(ContentSecurityResponseDecorator.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    
-    // append state
+
+    // BATCH_SIZE 只影响“处理/输出”的批次节奏；
+    // WINDOW_SIZE 只影响“何时检测”与“检测用的上下文大小”。
     private static final int BATCH_SIZE = 20;
     private static final int WINDOW_SIZE = 100;
     
@@ -44,7 +46,7 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
         super(
                 exchange.getResponse(),
                 exchange,
-                BATCH_SIZE,
+                Optional.ofNullable(handle.getChunkBatchSize()).orElse(BATCH_SIZE),
                 buildProcessAndOutput(handle, exchange, contentSecurityService)
         );
         this.handle = handle;
@@ -52,10 +54,10 @@ public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
         this.contentSecurityService = contentSecurityService;
 
         LOG.info("ContentSecurityResponseDecorator 初始化 - 请求ID: {}, 厂商: {}, 批次大小: {}, 检测阈值: {}", 
-                stateKey, handle.getVendor(), BATCH_SIZE, WINDOW_SIZE);
+                stateKey, handle.getVendor(), Optional.ofNullable(handle.getChunkBatchSize()).orElse(BATCH_SIZE), Optional.ofNullable(handle.getWindowSize()).orElse(WINDOW_SIZE));
         
         // init state
-        STATE_MAP.put(stateKey, new DecoratorState(exchange, WINDOW_SIZE, BATCH_SIZE));
+        STATE_MAP.put(stateKey, new DecoratorState(exchange, Optional.ofNullable(handle.getWindowSize()).orElse(WINDOW_SIZE), Optional.ofNullable(handle.getChunkBatchSize()).orElse(BATCH_SIZE)));
     }
 
     private static BiFunction<List<String>, List<byte[]>, Flux<DataBuffer>> buildProcessAndOutput(

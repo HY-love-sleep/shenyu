@@ -10,6 +10,8 @@ public class ContentSecurityHandle {
     private String accessToken;
     private String appId;
     private String url;
+    private Integer chunkBatchSize;
+    private Integer windowSize;
     // 厂商类型
     private String vendor;
     // 数美API特有参数
@@ -164,6 +166,22 @@ public class ContentSecurityHandle {
         this.breakerSleepWindowInMilliseconds = breakerSleepWindowInMilliseconds;
     }
 
+    public Integer getWindowSize() {
+        return windowSize;
+    }
+
+    public void setWindowSize(Integer windowSize) {
+        this.windowSize = windowSize;
+    }
+
+    public Integer getChunkBatchSize() {
+        return chunkBatchSize;
+    }
+
+    public void setChunkBatchSize(Integer chunkBatchSize) {
+        this.chunkBatchSize = chunkBatchSize;
+    }
+
     @Override
     public String toString() {
         return "ContentSecurityHandle{" +
@@ -171,6 +189,8 @@ public class ContentSecurityHandle {
                 ", accessToken='" + accessToken + '\'' +
                 ", appId='" + appId + '\'' +
                 ", url='" + url + '\'' +
+                ", chunkBatchSize=" + chunkBatchSize +
+                ", windowSize=" + windowSize +
                 ", vendor='" + vendor + '\'' +
                 ", eventId='" + eventId + '\'' +
                 ", type='" + type + '\'' +

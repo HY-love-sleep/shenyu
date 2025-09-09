@@ -12,6 +12,7 @@ import reactor.core.publisher.Flux;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -27,6 +28,8 @@ public class ContentMarkResponseDecorator extends GenericResponseDecorator {
     
     // Global state management to avoid duplicate processing
     private static final ConcurrentHashMap<String, MarkingState> MARKING_STATES = new ConcurrentHashMap<>();
+
+    private static final int BATCH_SIZE = 30;
     
     private final String requestId;
 
@@ -34,7 +37,7 @@ public class ContentMarkResponseDecorator extends GenericResponseDecorator {
         super(
                 exchange.getResponse(),
                 exchange,
-                10,
+                Optional.ofNullable(handle.getChunkBatchSize()).orElse(BATCH_SIZE),
                 buildMarkAndOutput(handle, exchange.getResponse(), exchange)
         );
         this.requestId = exchange.getRequest().getId();
