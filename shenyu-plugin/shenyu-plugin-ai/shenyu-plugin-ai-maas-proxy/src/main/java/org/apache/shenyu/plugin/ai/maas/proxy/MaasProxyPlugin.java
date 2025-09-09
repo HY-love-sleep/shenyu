@@ -86,6 +86,20 @@ public class MaasProxyPlugin extends AbstractShenyuPlugin {
         if (!newHeaders.containsKey(HttpHeaders.AUTHORIZATION)) {
             newHeaders.add(HttpHeaders.AUTHORIZATION, "Bearer " + aiCommonConfig.getApiKey());
         }
+        // Ensure content type and accept for JSON/SSE
+        if (!newHeaders.containsKey(HttpHeaders.CONTENT_TYPE)) {
+            newHeaders.add(HttpHeaders.CONTENT_TYPE, "application/json");
+        }
+        Boolean stream = aiCommonConfig.getStream();
+        if (Boolean.TRUE.equals(stream)) {
+            newHeaders.set(HttpHeaders.ACCEPT, "text/event-stream");
+            newHeaders.set("Cache-Control", "no-cache");
+            newHeaders.set("Connection", "keep-alive");
+        } else {
+            if (!newHeaders.containsKey(HttpHeaders.ACCEPT)) {
+                newHeaders.add(HttpHeaders.ACCEPT, "application/json");
+            }
+        }
 
         final ServerWebExchange mutated = exchange.mutate()
                 .request(builder -> builder.headers(h -> {
@@ -96,7 +110,7 @@ public class MaasProxyPlugin extends AbstractShenyuPlugin {
 
         final AiCommonConfig finalConfig = aiCommonConfig;
         return ServerWebExchangeUtils.rewriteRequestBody(mutated, messageReaders,
-                originalBody -> Mono.just(MaasRequestBodyConverter.convert(originalBody, finalConfig)))
+                originalBody -> Mono.just(MaasRequestBodyConverter.convert(originalBody, finalConfig, selectorHandle)))
             .flatMap(chain::execute);
     }
 

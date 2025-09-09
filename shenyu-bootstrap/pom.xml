@@ -300,6 +300,14 @@
         </dependency>
         <!--SEC Sensitive Words Plugin End-->
 
+        <!--SEC Maas Proxy Plugin Start-->
+        <dependency>
+            <groupId>org.apache.shenyu</groupId>
+            <artifactId>shenyu-spring-boot-starter-plugin-ai-maas-proxy</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!--SEC Maas Proxy Plugin End-->
+
         <!--shenyu sofa plugin start-->
         <dependency>
             <groupId>com.alipay.sofa</groupId>
