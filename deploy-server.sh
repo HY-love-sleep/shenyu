@@ -38,9 +38,9 @@ shenyu:
 
 spring:
   datasource:
-    url: jdbc:mysql://YOUR_MYSQL_HOST:3306/shenyu?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&zeroDateTimeBehavior=convertToNull&allowPublicKeyRetrieval=true
-    username: YOUR_MYSQL_USER
-    password: YOUR_MYSQL_PASSWORD
+    url: jdbc:mysql://192.168.130.168:3306/shenyu?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&zeroDateTimeBehavior=convertToNull&allowPublicKeyRetrieval=true
+    username: remote
+    password: zUTk%@uvs5EFdDY@jSDd
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       connection-timeout: 30000
@@ -52,6 +52,18 @@ spring:
       connection-test-query: SELECT 1
       connection-init-sql: SET NAMES utf8mb4
       validation-timeout: 800
+  mail:
+    host: smtp.qq.com
+    username: shenyu@apache.com
+    password: your-password
+    port: 587
+    properties:
+      mail:
+        smtp:
+          socketFactoryClass: javax.net.ssl.SSLSocketFactory
+          ssl:
+            enable: true
+
 EOF
 
 cat > $DEPLOY_DIR/configs/admin/application.yml << 'EOF'
@@ -64,54 +76,337 @@ spring:
     name: shenyu-admin
   profiles:
     active: mysql
+  thymeleaf:
+    cache: true
+    encoding: utf-8
+    enabled: true
+    prefix: classpath:/static/
+    suffix: .html
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+  jackson:
+    time-zone: GMT+8
+  messages:
+    basename: message/i18n
+
+management:
+  health:
+    mail:
+      enabled: off
+  endpoints:
+    web:
+      exposure:
+        include:
+          - 'health'
+          - 'prometheus'
+          - 'metrics'
+    enabled-by-default: true
+  endpoint:
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    distribution:
+      percentiles-histogram:
+        "[security.api.calls.duration]": true
+        "[watermark.api.calls.duration]": true
+      percentiles:
+        "[security.api.calls.duration]": 0.5,0.75,0.9,0.95,0.99
+        "[watermark.api.calls.duration]": 0.5,0.75,0.9,0.95,0.99
+
+mybatis:
+  config-location: classpath:/mybatis/mybatis-config.xml
+  mapper-locations: classpath:/mappers/*.xml
+  type-handlers-package: org.apache.shenyu.admin.mybatis.handler
 
 shenyu:
+  register:
+    registerType: http
+    serverLists:
+    props:
+      sessionTimeout: 5000
+      connectionTimeout: 2000
+      checked: true
+      zombieCheckThreads: 10
+      zombieCheckTimes: 5
+      scheduledTime: 10
+      nacosNameSpace: ShenyuRegisterCenter
   sync:
     websocket:
       enabled: true
       messageMaxSize: 10240
-      allowOrigins: ws://YOUR_SERVER_IP:9095;ws://YOUR_SERVER_IP:9195;
+      allowOrigins: ws://localhost:9195;ws://192.168.130.233:9195;
+  ldap:
+    enabled: false
+  jwt:
+    expired-seconds: 86400000
+  cluster:
+    enabled: false
+  shiro:
+    white-list:
+      - /
+      - /favicon.*
+      - /static/**
+      - /index**
+      - /platform/login
+      - /platform/secretInfo
+      - /websocket
+      - /error
+      - /actuator/health
+      - /actuator/health/**
+      - /actuator/prometheus
+      - /swagger-ui.html
+      - /swagger-ui/**
+      - /webjars/**
+      - /v3/api-docs/**
+      - /csrf
+      - /alert/report
+  dashboard:
+    core:
+      onlySuperAdminPermission:
+        - system:manager:add
+        - system:manager:edit
+        - system:manager:delete
+        - system:role:add
+        - system:role:edit
+        - system:role:delete
+        - system:resource:addButton
+        - system:resource:addMenu
+        - system:resource:editButton
+        - system:resource:editMenu
+        - system:resource:deleteButton
+        - system:resource:deleteMenu
 
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,metrics,prometheus
-  endpoint:
-    health:
-      show-details: always
-  metrics:
-    tags:
-      application: ${spring.application.name}
+logging:
+  level:
+    root: info
+    org.springframework.boot: info
+    org.apache.ibatis: info
+    org.apache.shenyu: info
+
 EOF
 
 cat > $DEPLOY_DIR/configs/bootstrap/application.yml << 'EOF'
 server:
   port: 9195
   address: 0.0.0.0
+  compression:
+    enabled: true
+    minResponseSize: 1MB # If the response data is greater than 1MB, enable compression.
 
 spring:
+  main:
+    allow-bean-definition-overriding: true
   application:
     name: shenyu-bootstrap
-  profiles:
-    active: local
+  codec:
+    max-in-memory-size: 2MB
+  cloud:
+    discovery:
+      enabled: false
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848 # Spring Cloud Alibaba Dubbo use this.
+        enabled: false
+        namespace: ShenyuRegisterCenter
 
-shenyu:
-  sync:
-    websocket:
-      urls: ws://YOUR_SERVER_IP:9095/websocket
+
+eureka:
+  client:
+    enabled: false
+    serviceUrl:
+      defaultZone: http://192.168.130.233:8761/eureka/
+  instance:
+    prefer-ip-address: true
 
 management:
+  health:
+    redis:
+      enabled: false
+    elasticsearch:
+      enabled: false
+  endpoint:
+    health:
+      enabled: true
+      show-details: always
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
-  endpoint:
-    health:
-      show-details: always
+        include:
+          - 'health'
+          - 'info'
+          - 'prometheus'
+          - 'metrics'
   metrics:
-    tags:
-      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        "[security.api.calls.duration]": true
+        "[watermark.api.calls.duration]": true
+      percentiles:
+        "[security.api.calls.duration]": 0.5,0.75,0.9,0.95,0.99
+        "[watermark.api.calls.duration]": 0.5,0.75,0.9,0.95,0.99
+
+shenyu:
+  namespace: 649330b6-c2d7-4edc-be8e-8a54df9eb385
+  selectorMatchCache:
+    cache:
+      enabled: false
+      initialCapacity: 10000 # initial capacity in cache
+      maximumSize: 10000 # max size in cache
+    trie:
+      enabled: false
+      cacheSize: 128 # the number of plug-ins
+      matchMode: antPathMatch
+  ruleMatchCache:
+    cache:
+      enabled: false
+      initialCapacity: 10000 # initial capacity in cache
+      maximumSize: 65536 # max size in cache
+    trie:
+      enabled: false
+      cacheSize: 1024 # the number of selectors
+      matchMode: antPathMatch
+  netty:
+    http:
+      webServerFactoryEnabled: true
+      selectCount: 1
+      workerCount: 8
+      accessLog: false
+      serverSocketChannel:
+        soBackLog: 128
+        soReuseAddr: true
+        connectTimeoutMillis: 10000
+        writeBufferHighWaterMark: 65536
+        writeBufferLowWaterMark: 32768
+        writeSpinCount: 16
+        autoRead: false
+        allocType: "unpooled"
+        messageSizeEstimator: 8
+        singleEventExecutorPerGroup: true
+      socketChannel:
+        soKeepAlive: false
+        soReuseAddr: true
+        soLinger: -1
+        tcpNoDelay: true
+        ipTos: 0
+        allowHalfClosure: false
+        connectTimeoutMillis: 10000
+        writeBufferHighWaterMark: 65536
+        writeBufferLowWaterMark: 32768
+        writeSpinCount: 16
+        autoRead: false
+        allocType: "unpooled"
+        messageSizeEstimator: 8
+        singleEventExecutorPerGroup: true
+      sni:
+        enabled: false
+        mod: k8s #manul
+        defaultK8sSecretNamespace: shenyu-ingress
+        defaultK8sSecretName: default-cert
+
+  register:
+    enabled: false
+    registerType: zookeeper #etcd #consul
+    serverLists: 192.168.130.233:2181 #http://localhost:2379 #localhost:8848
+    props:
+  cross:
+    enabled: true
+    allowedHeaders:
+    allowedMethods: "*"
+    allowedAnyOrigin: true # the same of Access-Control-Allow-Origin: "*"
+
+    allowedExpose: ""
+    maxAge: "18000"
+    allowCredentials: true
+
+  switchConfig:
+    local: true
+    collapseSlashes: false
+  file:
+    enabled: true
+    maxSize : 10
+  sync:
+    websocket:
+      urls: ws://localhost:9095/websocket
+      allowOrigin: ws://192.168.130.233:9195
+
+  exclude:
+    enabled: false
+    paths:
+      - /favicon.ico
+  fallback:
+    enabled: false
+    paths:
+      - /fallback/hystrix
+      - /fallback/resilience4j
+      - /fallback/sentinel
+  health:
+    enabled: true
+    paths:
+      - /actuator
+      - /health_check
+  alert:
+    enabled: false
+    admins: 192.168.130.233:9095
+  extPlugin:
+    path:
+    enabled: true
+    threads: 1
+    scheduleTime: 300
+    scheduleDelay: 30
+  scheduler:
+    enabled: false
+    type: fixed
+    threads: 16
+  upstreamCheck:
+    enabled: false
+    poolSize: 10
+    timeout: 3000
+    healthyThreshold: 1
+    unhealthyThreshold: 1
+    interval: 5000
+    printEnabled: true
+    printInterval: 60000
+  springCloudCache:
+    enabled: false
+  ribbon:
+    serverListRefreshInterval: 10000
+  metrics:
+    enabled: false
+    name : prometheus
+    host: 127.0.0.1
+    port: 8090
+    jmxConfig:
+    props:
+      jvm_enabled: true
+
+  local:
+    enabled: false
+    sha512Key: "BA3253876AED6BC22D4A6FF53D8406C6AD864195ED144AB5C87621B6C233B548BAEAE6956DF346EC8C17F5EA10F35EE3CBC514797ED7DDD3145464E2A0BAB413"
+  websocket:
+    enableProxyPing: false
+
+
+logging:
+  level:
+    root: info
+    org.springframework.boot: info
+    org.apache.ibatis: info
+    org.apache.shenyu.bonuspoint: info
+    org.apache.shenyu.lottery: info
+    org.apache.shenyu: info
+    org.springframework.http.server.reactive: info
+    org.springframework.web.reactive: info
+    reactor.ipc.netty: info
+    reactor.netty: info
+    org.apache.shenyu.plugin.api.ShenyuPlugin: info
+
 EOF
 
 # 创建启动脚本
