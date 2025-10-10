@@ -40,7 +40,7 @@ spring:
   datasource:
     url: jdbc:mysql://192.168.130.168:3306/shenyu?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&zeroDateTimeBehavior=convertToNull&allowPublicKeyRetrieval=true
     username: remote
-    password: zUTk%@uvs5EFdDY@jSDd
+    password: ${mysql-pass}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       connection-timeout: 30000
