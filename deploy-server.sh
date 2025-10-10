@@ -1,29 +1,128 @@
 #!/bin/bash
 
-# 服务器部署脚本
+# 服务器部署脚本（支持自动检测架构）
 # 在目标服务器上运行
 
 set -e
 
-echo "开始部署ShenYu服务到服务器..."
+echo "=== ShenYu 服务器部署脚本 ==="
+echo ""
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+# 自动检测服务器架构
+MACHINE_ARCH=$(uname -m)
+echo "检测服务器架构: $MACHINE_ARCH"
+
+case $MACHINE_ARCH in
+  x86_64|amd64)
+    ARCH="x86"
+    ARCH_NAME="x86_64 (amd64)"
+    IMAGES_DIR="$SCRIPT_DIR/offline-images/x86"
+    ADMIN_TAG="latest-x86"
+    BOOTSTRAP_TAG="latest-x86"
+    ;;
+  aarch64|arm64)
+    ARCH="arm"
+    ARCH_NAME="ARM64 (aarch64)"
+    IMAGES_DIR="$SCRIPT_DIR/offline-images/arm"
+    ADMIN_TAG="latest-arm"
+    BOOTSTRAP_TAG="latest-arm"
+    ;;
+  *)
+    echo "❌ 错误: 不支持的架构 '$MACHINE_ARCH'"
+    echo "支持的架构: x86_64, amd64, aarch64, arm64"
+    exit 1
+    ;;
+esac
+
+echo "使用架构: $ARCH_NAME"
+echo ""
+
+# 检查镜像目录是否存在
+if [ ! -d "$IMAGES_DIR" ]; then
+    echo "❌ 错误: 镜像目录不存在: $IMAGES_DIR"
+    echo ""
+    echo "可用的镜像目录:"
+    ls -d $SCRIPT_DIR/offline-images/*/ 2>/dev/null || echo "  无"
+    echo ""
+    echo "请确保部署包包含 $ARCH 架构的镜像。"
+    exit 1
+fi
+
+echo "镜像目录: $IMAGES_DIR"
+echo ""
 
 # 创建部署目录
 DEPLOY_DIR="/opt/shenyu"
 mkdir -p $DEPLOY_DIR/{admin,bootstrap,configs,logs}
 
 echo "创建部署目录: $DEPLOY_DIR"
+echo ""
 
-# 加载Docker镜像
-echo "加载Docker镜像..."
-docker load -i "$SCRIPT_DIR/offline-images/shenyu-admin-x86.tar"
-docker load -i "$SCRIPT_DIR/offline-images/shenyu-bootstrap-x86.tar"
+# 加载 Docker 镜像
+echo "加载 $ARCH_NAME 镜像..."
+cd "$IMAGES_DIR"
 
-# 重新标记镜像（将x86标签改为latest标签）
-echo "重新标记镜像..."
-docker tag shenyu-admin:latest-x86 shenyu-admin:latest
-docker tag shenyu-bootstrap:latest-x86 shenyu-bootstrap:latest
+if [ -f "load-images.sh" ]; then
+    # 使用自动加载脚本
+    echo "使用 load-images.sh 加载镜像..."
+    chmod +x load-images.sh
+    ./load-images.sh
+else
+    # 手动加载镜像
+    echo "手动加载镜像文件..."
+    
+    if [ -f "alpine.tar" ]; then
+        docker load -i alpine.tar
+        echo "✓ 加载 alpine"
+    fi
+    
+    if [ -f "amazoncorretto-17-alpine.tar" ]; then
+        docker load -i amazoncorretto-17-alpine.tar
+        echo "✓ 加载 amazoncorretto"
+    fi
+    
+    if [ -f "shenyu-admin-${ARCH}.tar" ]; then
+        docker load -i "shenyu-admin-${ARCH}.tar"
+        echo "✓ 加载 shenyu-admin"
+    else
+        echo "❌ 错误: 找不到 shenyu-admin-${ARCH}.tar"
+        exit 1
+    fi
+    
+    if [ -f "shenyu-bootstrap-${ARCH}.tar" ]; then
+        docker load -i "shenyu-bootstrap-${ARCH}.tar"
+        echo "✓ 加载 shenyu-bootstrap"
+    else
+        echo "❌ 错误: 找不到 shenyu-bootstrap-${ARCH}.tar"
+        exit 1
+    fi
+    
+    # 重新标记为 latest
+    echo ""
+    echo "重新标记镜像..."
+    docker tag "shenyu-admin:${ADMIN_TAG}" shenyu-admin:latest
+    docker tag "shenyu-bootstrap:${BOOTSTRAP_TAG}" shenyu-bootstrap:latest
+fi
+
+cd "$SCRIPT_DIR"
+
+# 验证镜像
+echo ""
+echo "验证镜像架构..."
+ADMIN_ARCH=$(docker inspect shenyu-admin:latest --format='{{.Architecture}}' 2>/dev/null || echo "unknown")
+BOOTSTRAP_ARCH=$(docker inspect shenyu-bootstrap:latest --format='{{.Architecture}}' 2>/dev/null || echo "unknown")
+
+echo "  shenyu-admin: $ADMIN_ARCH"
+echo "  shenyu-bootstrap: $BOOTSTRAP_ARCH"
+
+if [ "$ADMIN_ARCH" = "unknown" ] || [ "$BOOTSTRAP_ARCH" = "unknown" ]; then
+    echo "❌ 错误: 镜像加载失败"
+    exit 1
+fi
+
+echo ""
 
 # 创建配置文件目录
 mkdir -p $DEPLOY_DIR/configs/admin
@@ -465,16 +564,33 @@ if [ -d "$SCRIPT_DIR/monitoring" ]; then
   cp -r "$SCRIPT_DIR/monitoring" $DEPLOY_DIR/
 fi
 
-echo "部署完成！"
 echo ""
-echo "请修改配置文件中的以下内容："
-echo "1. 在 $DEPLOY_DIR/configs/admin/application-mysql.yml 中设置MySQL连接信息"
-echo "2. 在 $DEPLOY_DIR/configs/admin/application.yml 中设置服务器IP"
-echo "3. 在 $DEPLOY_DIR/configs/bootstrap/application.yml 中设置服务器IP"
+echo "================================================"
+echo "✅ 部署完成！"
+echo "================================================"
 echo ""
-echo "启动命令："
-echo "  cd $DEPLOY_DIR"
-echo "  ./start-admin.sh    # 启动admin服务"
-echo "  ./start-bootstrap.sh # 启动bootstrap服务"
-echo "  ./restart-all.sh    # 重启所有服务"
-echo "  ./stop-all.sh       # 停止所有服务"
+echo "服务器架构: $ARCH_NAME"
+echo "镜像架构: $ADMIN_ARCH"
+echo "部署目录: $DEPLOY_DIR"
+echo ""
+echo "📝 下一步操作："
+echo ""
+echo "1. 修改配置文件:"
+echo "   vi $DEPLOY_DIR/configs/admin/application-mysql.yml   # MySQL 连接"
+echo "   vi $DEPLOY_DIR/configs/admin/application.yml         # Admin 配置"
+echo "   vi $DEPLOY_DIR/configs/bootstrap/application.yml     # Bootstrap 配置"
+echo ""
+echo "2. 启动服务:"
+echo "   cd $DEPLOY_DIR"
+echo "   ./start-admin.sh        # 启动 Admin"
+echo "   ./start-bootstrap.sh    # 启动 Bootstrap"
+echo ""
+echo "3. 其他命令:"
+echo "   ./restart-all.sh        # 重启所有服务"
+echo "   ./stop-all.sh           # 停止所有服务"
+echo ""
+echo "4. 验证部署:"
+echo "   docker ps | grep shenyu"
+echo "   curl http://localhost:9095/actuator/health"
+echo "   curl http://localhost:9195/actuator/health"
+echo ""
