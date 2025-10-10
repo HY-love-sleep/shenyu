@@ -34,11 +34,11 @@ import io.micrometer.core.instrument.Timer;
  */
 public class WaterMarker {
     private static final Logger LOG = LoggerFactory.getLogger(WaterMarker.class);
-    
+
     private final SecurityMetricsCollector metricsCollector;
     private static final ConnectionProvider WM_PROVIDER = ConnectionProvider.builder("watermark-pool")
-            .maxConnections(800)
-            .pendingAcquireMaxCount(8000)
+            .maxConnections(128)
+            .pendingAcquireMaxCount(512)
             .pendingAcquireTimeout(java.time.Duration.ofSeconds(2))
             .maxIdleTime(java.time.Duration.ofSeconds(30))
             .maxLifeTime(java.time.Duration.ofMinutes(2))
@@ -49,21 +49,21 @@ public class WaterMarker {
     private static final HttpClient WM_HTTP_CLIENT = HttpClient.create(WM_PROVIDER)
             .compress(true)
             .keepAlive(true)
-            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 1000)
-            .responseTimeout(java.time.Duration.ofSeconds(4))
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 500)
+            .responseTimeout(java.time.Duration.ofMillis(2000))
             .doOnConnected(conn -> conn
-                    .addHandlerLast(new ReadTimeoutHandler(10))
-                    .addHandlerLast(new WriteTimeoutHandler(5))
+                    .addHandlerLast(new ReadTimeoutHandler(2))
+                    .addHandlerLast(new WriteTimeoutHandler(1))
             );
 
     private static final WebClient WEB_CLIENT = WebClient.builder()
             .clientConnector(new ReactorClientHttpConnector(WM_HTTP_CLIENT))
             .build();
-            
+
     public WaterMarker() {
         this.metricsCollector = null;
     }
-    
+
     public WaterMarker(SecurityMetricsCollector metricsCollector) {
         this.metricsCollector = metricsCollector;
         if (metricsCollector != null) {
@@ -75,7 +75,7 @@ public class WaterMarker {
     public static Mono<TextMarkResponse> addMarkForText(final TextMarkRequest request, final ContentMarkHandle handle) {
         return Mono.fromCallable(() -> new AddMarkHystrixCommand(request, handle, null).execute());
     }
-    
+
     /**
      * 为文本添加水印（带监控）
      *
@@ -86,7 +86,7 @@ public class WaterMarker {
     public Mono<TextMarkResponse> addMarkForTextWithMetrics(final TextMarkRequest request, final ContentMarkHandle handle) {
         return Mono.fromCallable(() -> new AddMarkHystrixCommand(request, handle, this.metricsCollector).execute());
     }
-    
+
     /**
      * 为文本添加水印的公共方法（带监控支持）
      *
@@ -103,7 +103,7 @@ public class WaterMarker {
         }
 
         final Timer.Sample finalSample = sample;
-        
+
         return addMarkForTextWithMetrics(request, handle)
                 .map(response -> {
                     // 记录成功指标
@@ -112,18 +112,18 @@ public class WaterMarker {
                         if (finalSample != null) {
                             metricsCollector.stopTimer(finalSample, "watermark", "addMark");
                         }
-                        
+
                         // 记录响应大小（如果有响应数据）
                         if (response != null && response.getData() != null && response.getData().getContent() != null) {
                             metricsCollector.recordResponseSize("watermark", response.getData().getContent().length());
                         }
                     }
-                    
+
                     return response;
                 })
                 .onErrorResume(throwable -> {
                     LOG.error("Watermark API call error", throwable);
-                    
+
                     // 记录失败指标
                     if (metricsCollector != null) {
                         String errorType = throwable.getClass().getSimpleName();
@@ -132,7 +132,7 @@ public class WaterMarker {
                             metricsCollector.stopTimer(finalSample, "watermark", "addMark");
                         }
                     }
-                    
+
                     // 返回错误响应
                     TextMarkResponse errorResponse = new TextMarkResponse();
                     errorResponse.setCode(-1);
@@ -164,11 +164,13 @@ public class WaterMarker {
                                     .withMaxQueueSize(Optional.ofNullable(handle.getHystrixThreadPoolQueueCapacity()).orElse(50))
                                     .withAllowMaximumSizeToDivergeFromCoreSize(true)
                                     .withKeepAliveTimeMinutes(1)
-                                    .withQueueSizeRejectionThreshold(200)
+                                    .withQueueSizeRejectionThreshold(
+                                            Optional.ofNullable(handle.getHystrixThreadPoolQueueCapacity()).orElse(500)
+                                    )
                     )
                     .andCommandPropertiesDefaults(
                             HystrixCommandProperties.Setter()
-                                    .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getBreakerSleepWindowInMilliseconds()).orElse(10000))
+                                    .withMetricsRollingStatisticalWindowInMilliseconds(Optional.ofNullable(handle.getStatisticalWindow()).orElse(10000))
                                     .withExecutionTimeoutInMilliseconds(Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(5000))
                                     .withCircuitBreakerEnabled(Optional.ofNullable(handle.getEnabled()).orElse(Boolean.TRUE))
                                     .withCircuitBreakerRequestVolumeThreshold(Optional.ofNullable(handle.getBreakerRequestVolumeThreshold()).orElse(150))
@@ -194,12 +196,16 @@ public class WaterMarker {
         protected TextMarkResponse run() {
             try {
                 // 设置合理的超时时间，确保有足够的缓冲时间
-                long timeout = Math.max(2000, Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(10000) - 2000);
-                
+                // Hystrix timeout from config (falls back to 5000)
+                int hystrixTimeout = Optional.ofNullable(handle.getTimeoutInMilliseconds()).orElse(5000);
+                // safety margin (ms): 保证 future 超时时间比 Hystrix 少 300ms（或至少 300ms）
+                int safetyMargin = 300;
+                long timeout = Math.max(300, hystrixTimeout - safetyMargin);
+
                 // 使用CompletableFuture避免阻塞，提高异步性能
                 CompletableFuture<TextMarkResponse> future = addMarkForTextInternal(request, handle)
                         .toFuture();
-                
+
                 return future.get(timeout, TimeUnit.MILLISECONDS);
             } catch (TimeoutException e) {
                 LOG.error("Watermark API call timeout", e);
@@ -220,11 +226,11 @@ public class WaterMarker {
         @Override
         protected TextMarkResponse getFallback() {
             LOG.warn("Watermark fallback by Hystrix.");
-            
+
             // 记录Hystrix fallback指标
             if (metricsCollector != null) {
                 metricsCollector.recordApiFailure("watermark", "addMark", "hystrix_fallback");
-                
+
                 // 检查fallback原因并记录
                 if (isResponseTimedOut()) {
                     LOG.warn("Fallback reason: Response timed out");
@@ -242,7 +248,7 @@ public class WaterMarker {
                     metricsCollector.recordApiFailure("watermark", "addMark", "circuit_breaker_open");
                 }
             }
-            
+
             TextMarkResponse fallback = new TextMarkResponse();
             fallback.setCode(-1);
             fallback.setMessage("Watermark API error, fallback by Hystrix");
