@@ -151,27 +151,32 @@ echo "文件列表:"
 ls -lh $OUTPUT_DIR/*.tar
 
 # 创建加载脚本
-cat > $OUTPUT_DIR/load-images.sh << EOF
+if [ "$ARCH" = "arm" ]; then
+    cat > $OUTPUT_DIR/load-images.sh << 'EOF'
 #!/bin/bash
-# 在 ${ARCH} 架构的 Linux 服务器上加载镜像
+# 在 ARM 架构的 Linux 服务器上加载镜像
 
 set -e
 
-echo "加载 ${ARCH} 架构的 Docker 镜像..."
+echo "加载 ARM 架构的 Docker 镜像..."
 
 docker load -i alpine.tar
 docker load -i amazoncorretto-17-alpine.tar
-docker load -i shenyu-admin-${ARCH}.tar
-docker load -i shenyu-bootstrap-${ARCH}.tar
+docker load -i shenyu-admin-arm.tar
+docker load -i shenyu-bootstrap-arm.tar
 
-# 重新标记为 latest
-docker tag shenyu-admin:latest-${ARCH} shenyu-admin:latest
-docker tag shenyu-bootstrap:latest-${ARCH} shenyu-bootstrap:latest
+echo "重新标记镜像..."
 
-# 如果是 ARM，还需要标记 JDK 版本别名（保持兼容性）
-if [ "${ARCH}" = "arm" ]; then
-    docker tag amazoncorretto:17-alpine amazoncorretto:17.0.11-alpine3.19 2>/dev/null || true
-fi
+# 应用镜像
+docker tag shenyu-admin:latest-arm shenyu-admin:latest
+docker tag shenyu-bootstrap:latest-arm shenyu-bootstrap:latest
+
+# 基础镜像（从临时 tag 恢复到标准 tag）
+docker tag alpine:arm-save alpine:latest
+docker tag amazoncorretto:arm-save amazoncorretto:17-alpine
+
+# 兼容性别名
+docker tag amazoncorretto:17-alpine amazoncorretto:17.0.11-alpine3.19 2>/dev/null || true
 
 echo ""
 echo "✅ 镜像加载完成！"
@@ -179,12 +184,59 @@ echo ""
 echo "验证镜像架构:"
 docker image inspect shenyu-admin:latest --format='shenyu-admin: {{.Architecture}}'
 docker image inspect shenyu-bootstrap:latest --format='shenyu-bootstrap: {{.Architecture}}'
+docker image inspect alpine:latest --format='alpine: {{.Architecture}}'
 docker image inspect amazoncorretto:17-alpine --format='amazoncorretto: {{.Architecture}}'
 
 echo ""
 echo "镜像列表:"
 docker images | grep -E "shenyu|alpine|amazoncorretto"
 EOF
+
+elif [ "$ARCH" = "x86" ]; then
+    cat > $OUTPUT_DIR/load-images.sh << 'EOF'
+#!/bin/bash
+# 在 x86 架构的 Linux 服务器上加载镜像
+
+set -e
+
+echo "加载 x86 架构的 Docker 镜像..."
+
+docker load -i alpine.tar
+docker load -i amazoncorretto-17-alpine.tar
+docker load -i shenyu-admin-x86.tar
+docker load -i shenyu-bootstrap-x86.tar
+
+echo "重新标记镜像..."
+
+# 应用镜像
+docker tag shenyu-admin:latest-x86 shenyu-admin:latest
+docker tag shenyu-bootstrap:latest-x86 shenyu-bootstrap:latest
+
+# 基础镜像（从临时 tag 恢复到标准 tag）
+docker tag alpine:x86-save alpine:latest
+docker tag amazoncorretto:x86-save amazoncorretto:17.0.11-alpine3.19
+
+# 兼容性别名
+docker tag amazoncorretto:17.0.11-alpine3.19 amazoncorretto:17-alpine 2>/dev/null || true
+
+echo ""
+echo "✅ 镜像加载完成！"
+echo ""
+echo "验证镜像架构:"
+docker image inspect shenyu-admin:latest --format='shenyu-admin: {{.Architecture}}'
+docker image inspect shenyu-bootstrap:latest --format='shenyu-bootstrap: {{.Architecture}}'
+docker image inspect alpine:latest --format='alpine: {{.Architecture}}'
+docker image inspect amazoncorretto:17.0.11-alpine3.19 --format='amazoncorretto: {{.Architecture}}'
+
+echo ""
+echo "镜像列表:"
+docker images | grep -E "shenyu|alpine|amazoncorretto"
+EOF
+
+else
+    echo "❌ 错误: 不支持的架构 '$ARCH'"
+    exit 1
+fi
 
 chmod +x $OUTPUT_DIR/load-images.sh
 
