@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @author yHong
  * @since 2025/7/9 14:25
  * @version 2.0
+ * todo: 分批次滑动窗口送审后， 需要将完整的内容整体送审一次， 做一个兜底
  */
 public class ContentSecurityResponseDecorator extends GenericResponseDecorator {
     private static final Logger LOG = LoggerFactory.getLogger(ContentSecurityResponseDecorator.class);
