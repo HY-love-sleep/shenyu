@@ -10,6 +10,9 @@ public class ContentSecurityHandle {
     private String accessToken;
     private String appId;
     private String url;
+    // ZKRJ新接口：prompt和response拆分为两个接口
+    private String promptUrl;
+    private String responseUrl;
     private Integer chunkBatchSize;
     private Integer windowSize;
     // 厂商类型
@@ -36,6 +39,22 @@ public class ContentSecurityHandle {
 
     public void setUrl(String url) {
         this.url = url;
+    }
+
+    public String getPromptUrl() {
+        return promptUrl;
+    }
+
+    public void setPromptUrl(String promptUrl) {
+        this.promptUrl = promptUrl;
+    }
+
+    public String getResponseUrl() {
+        return responseUrl;
+    }
+
+    public void setResponseUrl(String responseUrl) {
+        this.responseUrl = responseUrl;
     }
 
     public String getAccessKey() {
@@ -189,6 +208,8 @@ public class ContentSecurityHandle {
                 ", accessToken='" + accessToken + '\'' +
                 ", appId='" + appId + '\'' +
                 ", url='" + url + '\'' +
+                ", promptUrl='" + promptUrl + '\'' +
+                ", responseUrl='" + responseUrl + '\'' +
                 ", chunkBatchSize=" + chunkBatchSize +
                 ", windowSize=" + windowSize +
                 ", vendor='" + vendor + '\'' +

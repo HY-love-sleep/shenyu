@@ -174,11 +174,16 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
             return ContentSecurityResult.error("zkrj", "ZKRJ's response is null'", "1500", "response is null");
         }
 
-        // 根据zkrj接口文档， 依据PromptCategory来判断是否合规
-        String promptCategory = data.getPromptCategory();
-        if ("违规".equals(promptCategory) || "疑似".equals(promptCategory)) {
-            return ContentSecurityResult.failed("zkrj", promptCategory, 
-                "ZKRJ Test results：" + promptCategory, response);
+        // 根据zkrj新接口文档，支持两种检测类型
+        // Prompt检测：使用 promptCategory
+        // Response检测：使用 contentCategory
+        String category = data.getPromptCategory() != null 
+                ? data.getPromptCategory() 
+                : data.getContentCategory();
+        
+        if ("违规".equals(category) || "疑似".equals(category)) {
+            return ContentSecurityResult.failed("zkrj", category, 
+                "ZKRJ Test results：" + category, response);
         } else {
             return ContentSecurityResult.passed("zkrj", response);
         }
@@ -412,41 +417,32 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
 
         private String accessKey;
         private String accessToken;
-        private String appId;
         private String prompt;
         private String content;
-        private String promptSceneCode;
-        private String contentSceneCode;
 
         public SafetyCheckRequest() {
         }
 
-        public SafetyCheckRequest(final String accessKey,
-                                  final String accessToken,
-                                  final String appId,
-                                  final String prompt,
-                                  final String content) {
-            this.accessKey = accessKey;
-            this.accessToken = accessToken;
-            this.appId = appId;
-            this.prompt = prompt;
-            this.content = content;
+        // prompt检测构造器
+        public static SafetyCheckRequest forPrompt(final String accessKey,
+                                                   final String accessToken,
+                                                   final String prompt) {
+            SafetyCheckRequest request = new SafetyCheckRequest();
+            request.accessKey = accessKey;
+            request.accessToken = accessToken;
+            request.prompt = prompt;
+            return request;
         }
 
-        // prompt-only
-        public SafetyCheckRequest(final String accessKey,
-                                  final String accessToken,
-                                  final String appId,
-                                  final String prompt) {
-            this(accessKey, accessToken, appId, prompt, null);
-        }
-
-        // content-only
+        // content检测构造器
         public static SafetyCheckRequest forContent(final String accessKey,
                                                     final String accessToken,
-                                                    final String appId,
                                                     final String content) {
-            return new SafetyCheckRequest(accessKey, accessToken, appId, null, content);
+            SafetyCheckRequest request = new SafetyCheckRequest();
+            request.accessKey = accessKey;
+            request.accessToken = accessToken;
+            request.content = content;
+            return request;
         }
 
         public String getAccessKey() {
@@ -465,14 +461,6 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
             this.accessToken = accessToken;
         }
 
-        public String getAppId() {
-            return appId;
-        }
-
-        public void setAppId(final String appId) {
-            this.appId = appId;
-        }
-
         public String getPrompt() {
             return prompt;
         }
@@ -487,22 +475,6 @@ public class ContentSecurityCheckerZkrj implements ContentSecurityChecker {
 
         public void setContent(final String content) {
             this.content = content;
-        }
-
-        public String getPromptSceneCode() {
-            return promptSceneCode;
-        }
-
-        public void setPromptSceneCode(final String promptSceneCode) {
-            this.promptSceneCode = promptSceneCode;
-        }
-
-        public String getContentSceneCode() {
-            return contentSceneCode;
-        }
-
-        public void setContentSceneCode(final String contentSceneCode) {
-            this.contentSceneCode = contentSceneCode;
         }
     }
 

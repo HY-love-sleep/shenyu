@@ -43,24 +43,88 @@ public class ContentSecurityService {
      * 
      * @param text 需要检测的文本
      * @param handle 配置参数
+     * @param checkType 检测类型："input"(prompt) 或 "output"(content)
      * @return 检测结果
      */
-    public Mono<ContentSecurityResult> checkTextWithZkrj(String text, ContentSecurityHandle handle) {
+    public Mono<ContentSecurityResult> checkTextWithZkrj(String text, ContentSecurityHandle handle, String checkType) {
         try {
-            SafetyCheckRequest request = new SafetyCheckRequest(
-                handle.getAccessKey(),
-                handle.getAccessToken(),
-                handle.getAppId(),
-                text
-            );
+            SafetyCheckRequest request;
+            ContentSecurityHandle modifiedHandle = cloneHandle(handle);
             
-            ContentSecurityChecker checker = checkerFactory.getChecker(handle);
-            return checker.checkText(request, handle);
+            // 根据检测类型选择不同的URL和请求字段
+            if ("input".equals(checkType)) {
+                // Prompt检测
+                request = SafetyCheckRequest.forPrompt(
+                    handle.getAccessKey(),
+                    handle.getAccessToken(),
+                    text
+                );
+                // 使用 promptUrl，如果没有配置则使用默认 url
+                String promptUrl = handle.getPromptUrl() != null 
+                    ? handle.getPromptUrl() 
+                    : "https://openapi.ruijianai.com/detect/safety/text/check";
+                modifiedHandle.setUrl(promptUrl);
+                LOG.info("ZKRJ Prompt检测 - URL: {}", promptUrl);
+            } else if ("output".equals(checkType)) {
+                // Response检测
+                request = SafetyCheckRequest.forContent(
+                    handle.getAccessKey(),
+                    handle.getAccessToken(),
+                    text
+                );
+                // 使用 responseUrl，如果没有配置则使用默认 url
+                String responseUrl = handle.getResponseUrl() != null 
+                    ? handle.getResponseUrl() 
+                    : "https://openapi.ruijianai.com/detect/safety/text/aigcCheck";
+                modifiedHandle.setUrl(responseUrl);
+                LOG.info("ZKRJ Response检测 - URL: {}", responseUrl);
+            } else {
+                // 兼容旧调用（未指定类型）
+                request = SafetyCheckRequest.forPrompt(
+                    handle.getAccessKey(),
+                    handle.getAccessToken(),
+                    text
+                );
+                LOG.warn("ZKRJ检测类型未指定，默认使用Prompt检测");
+            }
+            
+            ContentSecurityChecker checker = checkerFactory.getChecker(modifiedHandle);
+            return checker.checkText(request, modifiedHandle);
         } catch (Exception e) {
-            LOG.error("Failed to check text with ZKRJ", e);
+            LOG.error("Failed to check text with ZKRJ, checkType: {}", checkType, e);
             return Mono.just(ContentSecurityResult.error("zkrj", 
                 e.getMessage(), "1500", "检测服务异常"));
         }
+    }
+    
+    /**
+     * 克隆配置对象（浅拷贝）
+     */
+    private ContentSecurityHandle cloneHandle(ContentSecurityHandle handle) {
+        ContentSecurityHandle newHandle = new ContentSecurityHandle();
+        newHandle.setAccessKey(handle.getAccessKey());
+        newHandle.setAccessToken(handle.getAccessToken());
+        newHandle.setAppId(handle.getAppId());
+        newHandle.setUrl(handle.getUrl());
+        newHandle.setPromptUrl(handle.getPromptUrl());
+        newHandle.setResponseUrl(handle.getResponseUrl());
+        newHandle.setVendor(handle.getVendor());
+        newHandle.setEventId(handle.getEventId());
+        newHandle.setType(handle.getType());
+        newHandle.setChunkBatchSize(handle.getChunkBatchSize());
+        newHandle.setWindowSize(handle.getWindowSize());
+        // 复制Hystrix相关配置
+        newHandle.setEnabled(handle.getEnabled());
+        newHandle.setTimeoutInMilliseconds(handle.getTimeoutInMilliseconds());
+        newHandle.setHystrixThreadPoolCoreSize(handle.getHystrixThreadPoolCoreSize());
+        newHandle.setHystrixThreadPoolMaxSize(handle.getHystrixThreadPoolMaxSize());
+        newHandle.setHystrixThreadPoolQueueCapacity(handle.getHystrixThreadPoolQueueCapacity());
+        newHandle.setAllowMaximumSizeToDivergeFromCoreSize(handle.getAllowMaximumSizeToDivergeFromCoreSize());
+        newHandle.setStatisticalWindow(handle.getStatisticalWindow());
+        newHandle.setBreakerRequestVolumeThreshold(handle.getBreakerRequestVolumeThreshold());
+        newHandle.setBreakerErrorThresholdPercentage(handle.getBreakerErrorThresholdPercentage());
+        newHandle.setBreakerSleepWindowInMilliseconds(handle.getBreakerSleepWindowInMilliseconds());
+        return newHandle;
     }
     
     /**
@@ -123,9 +187,10 @@ public class ContentSecurityService {
      * 
      * @param text 需要检测的文本
      * @param handle 配置参数
+     * @param checkType 检测类型："input"(prompt检测) 或 "output"(response检测)，对于数美则作为eventId使用
      * @return 检测结果
      */
-    public Mono<ContentSecurityResult> checkText(final String text, final ContentSecurityHandle handle, final String eventId) {
+    public Mono<ContentSecurityResult> checkText(final String text, final ContentSecurityHandle handle, final String checkType) {
         if (handle == null) {
             return Mono.just(ContentSecurityResult.error("unknown", 
                 "配置参数为空", "1500", "配置参数为空"));
@@ -139,8 +204,8 @@ public class ContentSecurityService {
         
         try {
             return switch (vendor.toLowerCase()) {
-                case "zkrj" -> checkTextWithZkrj(text, handle);
-                case "shumei" -> checkTextWithShumei(text, handle, eventId);
+                case "zkrj" -> checkTextWithZkrj(text, handle, checkType);
+                case "shumei" -> checkTextWithShumei(text, handle, checkType);
                 default -> Mono.just(ContentSecurityResult.error(vendor,
                         "不支持的厂商类型: " + vendor, "1500", "不支持的厂商类型"));
             };
