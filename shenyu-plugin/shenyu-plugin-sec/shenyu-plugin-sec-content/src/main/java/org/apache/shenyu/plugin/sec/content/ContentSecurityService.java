@@ -56,9 +56,8 @@ public class ContentSecurityService {
             ContentSecurityHandle modifiedHandle = cloneHandle(handle);
             // 根据检测类型选择不同的URL和请求字段
                 // Prompt检测
-                request.setAccessKey(handle.getAccessKey());
-                request.setAccessToken(handle.getAccessToken());
-                request.setData(text);
+                request.setModel("text-detect");
+                request.setInput(text);
                 // 使用 promptUrl，如果没有配置则使用默认 url
                 String promptUrl = handle.getPromptUrl() != null
                         ? handle.getPromptUrl()

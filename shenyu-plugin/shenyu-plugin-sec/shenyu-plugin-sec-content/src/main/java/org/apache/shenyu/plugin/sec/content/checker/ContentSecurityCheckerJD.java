@@ -305,17 +305,8 @@ public class ContentSecurityCheckerJD implements ContentSecurityChecker {
 
     public static class JDCheckRequest {
 
-        private String id;
         private String model;
-
-        public String getId() {
-            return id;
-        }
-
-        public void setId(String id) {
-            this.id = id;
-        }
-
+        private String input;
         public String getModel() {
             return model;
         }
@@ -324,6 +315,13 @@ public class ContentSecurityCheckerJD implements ContentSecurityChecker {
             this.model = model;
         }
 
+        public String getInput() {
+            return input;
+        }
+
+        public void setInput(String input) {
+            this.input = input;
+        }
     }
 
     public static class JDCheckResponse {
