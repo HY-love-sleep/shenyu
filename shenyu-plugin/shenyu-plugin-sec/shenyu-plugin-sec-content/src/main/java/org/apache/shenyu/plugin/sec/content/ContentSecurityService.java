@@ -3,12 +3,15 @@ package org.apache.shenyu.plugin.sec.content;
 import org.apache.shenyu.common.dto.convert.rule.ContentSecurityHandle;
 import org.apache.shenyu.plugin.sec.content.checker.ContentSecurityChecker;
 import org.apache.shenyu.plugin.sec.content.checker.ContentSecurityCheckerFactory;
+import org.apache.shenyu.plugin.sec.content.checker.ContentSecurityCheckerJD;
 import org.apache.shenyu.plugin.sec.content.checker.ContentSecurityCheckerSm;
 import org.apache.shenyu.plugin.sec.content.checker.ContentSecurityCheckerZkrj.SafetyCheckRequest;
 import org.apache.shenyu.plugin.sec.content.checker.ContentSecurityCheckerSm.SmTextCheckRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
+
+import java.util.List;
 
 /**
  * 内容安全检测服务
@@ -37,7 +40,41 @@ public class ContentSecurityService {
     public ContentSecurityService(ContentSecurityCheckerFactory checkerFactory) {
         this.checkerFactory = checkerFactory;
     }
-    
+
+
+    /**
+     * 检测文本内容安全性（JD厂商）
+     *
+     * @param text 需要检测的文本
+     * @param handle 配置参数
+     * @param checkType 检测类型："input"(prompt) 或 "output"(content)
+     * @return 检测结果
+     */
+    public Mono<ContentSecurityResult> checkTextWithJD(final String text, final ContentSecurityHandle handle, final String checkType) {
+        try {
+            ContentSecurityCheckerJD.JDCheckRequest request = new ContentSecurityCheckerJD.JDCheckRequest();
+            ContentSecurityHandle modifiedHandle = cloneHandle(handle);
+            // 根据检测类型选择不同的URL和请求字段
+                // Prompt检测
+                request.setAccessKey(handle.getAccessKey());
+                request.setAccessToken(handle.getAccessToken());
+                request.setData(text);
+                // 使用 promptUrl，如果没有配置则使用默认 url
+                String promptUrl = handle.getPromptUrl() != null
+                        ? handle.getPromptUrl()
+                        : "http://127.0.0.1:9995/v1/moderations";
+                modifiedHandle.setUrl(promptUrl);
+                LOG.info("JD Prompt检测 - URL: {}", promptUrl);
+
+            ContentSecurityChecker checker = checkerFactory.getChecker(modifiedHandle);
+            return checker.checkText(request, modifiedHandle);
+        } catch (Exception e) {
+            LOG.error("Failed to check text with JD, checkType: {}", checkType, e);
+            return Mono.just(ContentSecurityResult.error("JD",
+                    e.getMessage(), "1500", "检测服务异常"));
+        }
+    }
+
     /**
      * 检测文本内容安全性（ZKRJ厂商）
      * 
@@ -148,7 +185,7 @@ public class ContentSecurityService {
      */
     public Mono<ContentSecurityResult> checkTextWithShumei(final String text, final ContentSecurityHandle handle, final String eventIdOverride) {
         try {
-            ContentSecurityCheckerSm.SmTextCheckRequest request = new ContentSecurityCheckerSm.SmTextCheckRequest();
+            SmTextCheckRequest request = new SmTextCheckRequest();
             request.setAccessKey(handle.getAccessKey());
             request.setAppId(handle.getAppId());
             String finalEventId = (eventIdOverride != null && !eventIdOverride.isEmpty()) ? eventIdOverride : handle.getEventId();
@@ -206,6 +243,7 @@ public class ContentSecurityService {
             return switch (vendor.toLowerCase()) {
                 case "zkrj" -> checkTextWithZkrj(text, handle, checkType);
                 case "shumei" -> checkTextWithShumei(text, handle, checkType);
+                case "JD" -> checkTextWithJD(text, handle, checkType);
                 default -> Mono.just(ContentSecurityResult.error(vendor,
                         "不支持的厂商类型: " + vendor, "1500", "不支持的厂商类型"));
             };
@@ -231,7 +269,7 @@ public class ContentSecurityService {
      * 
      * @return 支持的厂商类型列表
      */
-    public java.util.List<String> getSupportedVendors() {
+    public List<String> getSupportedVendors() {
         return checkerFactory.getSupportedVendors();
     }
 }

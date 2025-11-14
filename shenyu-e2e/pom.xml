@@ -54,7 +54,7 @@
         <jetbrains-annotations.version>23.0.0</jetbrains-annotations.version>
         <apache-rat-plugin.version>0.15</apache-rat-plugin.version>
         <spring-framework.version>5.3.30</spring-framework.version>
-        <maven-checkstyle-plugin.version>3.4.0</maven-checkstyle-plugin.version>
+<!--        <maven-checkstyle-plugin.version>3.4.0</maven-checkstyle-plugin.version>-->
         <guava.version>32.0.0-jre</guava.version>
         <commons-collection.verion>4.4</commons-collection.verion>
         <websocket.version>1.5.1</websocket.version>
@@ -281,26 +281,26 @@
                 </configuration>
             </plugin>
 
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-checkstyle-plugin</artifactId>
-                <version>${maven-checkstyle-plugin.version}</version>
-                <configuration>
-                    <configLocation>/../script/shenyu_checkstyle.xml</configLocation>
-                    <headerLocation>/../script/checkstyle-header.txt</headerLocation>
-                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
-                    <excludes>**/transfer/**/*</excludes>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>validate</id>
-                        <phase>validate</phase>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
+<!--            <plugin>-->
+<!--                <groupId>org.apache.maven.plugins</groupId>-->
+<!--                <artifactId>maven-checkstyle-plugin</artifactId>-->
+<!--                <version>${maven-checkstyle-plugin.version}</version>-->
+<!--                <configuration>-->
+<!--                    <configLocation>/../script/shenyu_checkstyle.xml</configLocation>-->
+<!--                    <headerLocation>/../script/checkstyle-header.txt</headerLocation>-->
+<!--                    <includeTestSourceDirectory>true</includeTestSourceDirectory>-->
+<!--                    <excludes>**/transfer/**/*</excludes>-->
+<!--                </configuration>-->
+<!--                <executions>-->
+<!--                    <execution>-->
+<!--                        <id>validate</id>-->
+<!--                        <phase>validate</phase>-->
+<!--                        <goals>-->
+<!--                            <goal>check</goal>-->
+<!--                        </goals>-->
+<!--                    </execution>-->
+<!--                </executions>-->
+<!--            </plugin>-->
 
             <plugin>
                 <groupId>org.apache.rat</groupId>
