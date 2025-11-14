@@ -366,8 +366,8 @@ public class ContentSecurityCheckerJD implements ContentSecurityChecker {
     public static class RiskItem {
         private String flagged;
         private JsonObject categories;
-        private JsonObject category_scores;
-        private JsonObject category_applied_input_types;
+        private JsonObject categoryScores;
+        private JsonObject categoryAppliedInputTypes;
         public String getFlagged() {
             return flagged;
         }
@@ -384,29 +384,28 @@ public class ContentSecurityCheckerJD implements ContentSecurityChecker {
             this.categories = categories;
         }
 
-        public JsonObject getCategory_scores() {
-            return category_scores;
+        public JsonObject getCategoryScores() {
+            return categoryScores;
         }
 
-        public void setCategory_scores(JsonObject category_scores) {
-            this.category_scores = category_scores;
+        public void setCategoryScores(JsonObject categoryScores) {
+            this.categoryScores = categoryScores;
         }
 
-        public JsonObject getCategory_applied_input_types() {
-            return category_applied_input_types;
+        public JsonObject getCategoryAppliedInputTypes() {
+            return categoryAppliedInputTypes;
         }
 
-        public void setCategory_applied_input_types(JsonObject category_applied_input_types) {
-            this.category_applied_input_types = category_applied_input_types;
+        public void setCategoryAppliedInputTypes(JsonObject categoryAppliedInputTypes) {
+            this.categoryAppliedInputTypes = categoryAppliedInputTypes;
         }
-
         @Override
         public String toString() {
             return "RiskItem{" +
                     "flagged='" + flagged + '\'' +
                     ", categories=" + categories +
-                    ", category_scores=" + category_scores +
-                    ", category_applied_input_types=" + category_applied_input_types +
+                    ", categoryScores=" + categoryScores +
+                    ", categoryAppliedInputTypes=" + categoryAppliedInputTypes +
                     '}';
         }
     }

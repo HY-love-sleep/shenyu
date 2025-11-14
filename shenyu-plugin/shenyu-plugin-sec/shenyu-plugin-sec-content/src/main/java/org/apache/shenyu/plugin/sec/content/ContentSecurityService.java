@@ -34,7 +34,8 @@ public class ContentSecurityService {
     private static final String DEFAULT_AT_ID = "default_user";
     private static final String DEFAULT_ROOM = "default_room";
     private static final String DEFAULT_RECEIVER_TOKEN_ID = "default_receiver";
-    
+    private static final String DEFAULT_JD_URL = "http://116.198.229.83:9910/v1/moderations";
+
     private final ContentSecurityCheckerFactory checkerFactory;
     
     public ContentSecurityService(ContentSecurityCheckerFactory checkerFactory) {
@@ -61,7 +62,7 @@ public class ContentSecurityService {
                 // 使用 promptUrl，如果没有配置则使用默认 url
                 String promptUrl = handle.getPromptUrl() != null
                         ? handle.getPromptUrl()
-                        : "http://127.0.0.1:9995/v1/moderations";
+                        : DEFAULT_JD_URL;
                 modifiedHandle.setUrl(promptUrl);
                 LOG.info("JD Prompt检测 - URL: {}", promptUrl);
 
